@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ngocson18.github.io/ban-do-xe-dich/sitemap.xml
