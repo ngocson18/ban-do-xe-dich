@@ -4,6 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="images/Icon-637.png">
+  <link rel="apple-touch-icon" href="images/Icon-637.png">
   <title>Nhật Ký Hành Trình — Ngọc Sơn & Huyền Thương</title>
   <script src="lib/tailwind/tailwind.js"></script>
   <link rel="stylesheet" href="lib/fontawesome/css/all.min.css">
@@ -342,7 +344,7 @@
         <label class="block text-xs font-semibold text-stone-700">Dán đường link ảnh (Google Photos, Facebook,
           Imgur...):</label>
         <div class="flex gap-2">
-          <input type="url" id="new-photo-url" placeholder="https://..."
+          <input type="url" id="new-photo-url" onkeydown="if(event.key==='Enter')addPhotoToDestination()" placeholder="https://..."
             class="flex-1 px-3 py-2 rounded-xl border border-stone-200 text-xs focus:outline-none focus:border-terracotta-500">
           <button onclick="addPhotoToDestination()"
             class="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-semibold">Thêm

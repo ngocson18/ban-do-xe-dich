@@ -676,7 +676,7 @@ function renderMapMarkers() {
     const checkedList = items.filter(i => i.checked).map(i => `<li class="text-stone-700">✓ ${i.text}</li>`).join('');
     const uncheckedList = items.filter(i => !i.checked).map(i => `<li class="text-stone-400">○ ${i.text}</li>`).join('');
     const coverPhoto = (dest.photos && dest.photos.length > 0)
-      ? `<img src="${dest.photos[0]}" class="w-full h-24 object-cover rounded-lg mb-2" onerror="this.style.display='none'">`
+      ? `<img src="${dest.photos[0]}" referrerpolicy="no-referrer" class="w-full h-24 object-cover rounded-lg mb-2" onerror="this.style.display='none'">`
       : '';
 
     const popupHTML = `
@@ -831,6 +831,7 @@ function showHoverPhoto(event, destId) {
   const img = document.getElementById('hover-preview-img');
   const cap = document.getElementById('hover-preview-caption');
 
+  img.referrerPolicy = 'no-referrer';
   img.src = dest.photos[0];
   cap.textContent = `${dest.name} (${dest.photos.length} ảnh kỷ niệm)`;
   box.classList.remove('hidden');
@@ -878,7 +879,7 @@ function renderPhotoGallery(dest) {
 
   grid.innerHTML = photos.map((url, idx) => `
             <div class="relative group rounded-2xl overflow-hidden border border-stone-200 bg-stone-100 aspect-4/3">
-                <img src="${url}" alt="Kỷ niệm" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/400x300/f5f5f4/78716c?text=Loi+Link+Anh'">
+                <img src="${url}" referrerpolicy="no-referrer" alt="Kỷ niệm" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/400x300/f5f5f4/78716c?text=Loi+Link+Anh'">
                 ${isOwnerMode ? `
                     <button onclick="removePhotoFromDestination(${idx})" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/65 text-white hover:bg-red-600 text-xs flex items-center justify-center transition">
                         <i class="fa-solid fa-trash-can"></i>
@@ -893,6 +894,18 @@ function addPhotoToDestination() {
   const input = document.getElementById('new-photo-url');
   const url = input.value.trim();
   if (!url) return;
+
+  let parsed;
+  try { parsed = new URL(url); } catch (e) { parsed = null; }
+  if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+    showToast('Link ảnh không hợp lệ!');
+    return;
+  }
+  // Link album chia sẻ không phải link ảnh trực tiếp -> không hiển thị được trong thẻ <img>
+  if (/^photos\.app\.goo\.gl$/.test(parsed.hostname) || /^photos\.google\.com$/.test(parsed.hostname)) {
+    alert('Đây là link ALBUM/trang Google Photos, không phải link ảnh trực tiếp nên không hiển thị được.\n\nCách lấy link ảnh: mở ảnh trong Google Photos → chuột phải vào ảnh → "Sao chép địa chỉ hình ảnh" (Copy image address) → link bắt đầu bằng https://lh3.googleusercontent.com/... hoặc https://photos.fife.usercontent.google.com/...');
+    return;
+  }
 
   const dest = destinations.find(d => d.id === currentPhotoDestId);
   if (!dest) return;
