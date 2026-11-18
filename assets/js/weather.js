@@ -426,6 +426,10 @@ function renderMapWeatherOverlay() {
       <span class="font-extrabold text-amber-300">${wx.temp}°C</span>
       <span class="hidden sm:inline text-[10px] text-white/75">· ${escapeHtml(wx.info.label)}</span>
     </button>`;
+
+  if (typeof updateAmbientSoundForPlace === 'function') {
+    updateAmbientSoundForPlace(st.name, wx.info.scene);
+  }
 }
 
 // ==========================================
