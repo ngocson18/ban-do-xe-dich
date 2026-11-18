@@ -733,6 +733,13 @@ function findProvince(lat, lng) {
   return nearest;
 }
 
+const PROVINCE_COLORS = {
+  both:    { stroke: '#E11D48', fill: '#F43F5E', opacity: 0.46, label: '❤️ Cả hai cùng đi', icon: '❤️' },
+  husband: { stroke: '#0284C7', fill: '#38BDF8', opacity: 0.46, label: '💙 Chồng đã đi',    icon: '💙' },
+  wife:    { stroke: '#9333EA', fill: '#C084FC', opacity: 0.46, label: '🌸 Vợ đã đi',       icon: '🌸' },
+  mixed:   { stroke: '#D97706', fill: '#FBBF24', opacity: 0.46, label: '✨ Cả 2 đi riêng',  icon: '✨' }
+};
+
 function getVisitedProvincesMap() {
   const visited = {};
   if (typeof VN_PROVINCES_GEOJSON === 'undefined') return visited;
@@ -742,9 +749,27 @@ function getVisitedProvincesMap() {
     const key = d.id + '|' + lat + '|' + lng;
     if (!(key in provinceCache)) provinceCache[key] = findProvince(lat, lng);
     const prov = provinceCache[key];
-    if (prov) (visited[prov] = visited[prov] || []).push(d.name);
+    if (!prov) return;
+    if (!visited[prov]) visited[prov] = { places: [], hasBoth: false, hasHusband: false, hasWife: false, status: 'both' };
+    const entry = visited[prov];
+    entry.places.push({ name: d.name, who: d.who || 'both' });
+    if (d.who === 'both') entry.hasBoth = true;
+    else if (d.who === 'husband') entry.hasHusband = true;
+    else if (d.who === 'wife') entry.hasWife = true;
+  });
+  Object.values(visited).forEach(entry => {
+    if (entry.hasBoth) entry.status = 'both';
+    else if (entry.hasHusband && entry.hasWife) entry.status = 'mixed';
+    else if (entry.hasHusband) entry.status = 'husband';
+    else entry.status = 'wife';
   });
   return visited;
+}
+
+function getProvinceStyle(entry) {
+  if (!entry) return { color: '#A8A29E', weight: 0.6, fillColor: '#ffffff', fillOpacity: 0.05 };
+  const c = PROVINCE_COLORS[entry.status] || PROVINCE_COLORS.both;
+  return { color: c.stroke, weight: 1.3, fillColor: c.fill, fillOpacity: c.opacity };
 }
 
 function updateProvinceLayer() {
@@ -754,20 +779,35 @@ function updateProvinceLayer() {
   if (provinceLayer) map.removeLayer(provinceLayer);
   provinceLayer = L.geoJSON(VN_PROVINCES_GEOJSON, {
     pane: 'provincePane',
-    style: f => visited[f.properties.name]
-      ? { color: '#C2410C', weight: 1.2, fillColor: '#F97316', fillOpacity: 0.45 }
-      : { color: '#A8A29E', weight: 0.6, fillColor: '#ffffff', fillOpacity: 0.05 },
+    style: f => getProvinceStyle(visited[f.properties.name]),
     onEachFeature: (f, layer) => {
-      const places = visited[f.properties.name];
-      layer.bindTooltip(
-        places ? `<b>${escapeHtml(f.properties.name)}</b><br>✅ ${places.map(escapeHtml).join('<br>✅ ')}` : escapeHtml(f.properties.name),
-        { sticky: true }
-      );
+      const entry = visited[f.properties.name];
+      if (entry) {
+        const c = PROVINCE_COLORS[entry.status];
+        const lines = entry.places.map(p => {
+          const ic = p.who === 'both' ? '❤️' : p.who === 'husband' ? '💙' : '🌸';
+          return `${ic} ${escapeHtml(p.name)}`;
+        }).join('<br>');
+        layer.bindTooltip(
+          `<b>${escapeHtml(f.properties.name)}</b> <span style="opacity:.75">(${c.label})</span><br>${lines}`,
+          { sticky: true }
+        );
+        layer.on('mouseover', () => layer.setStyle({ weight: 2.2, fillOpacity: 0.68 }));
+        layer.on('mouseout', () => provinceLayer && provinceLayer.resetStyle(layer));
+      } else {
+        layer.bindTooltip(escapeHtml(f.properties.name), { sticky: true });
+      }
     }
   }).addTo(map);
 
   const total = VN_PROVINCES_GEOJSON.features.length;
-  const count = Object.keys(visited).length;
+  const entries = Object.values(visited);
+  const count = entries.length;
+  const cBoth = entries.filter(e => e.status === 'both').length;
+  const cHusband = entries.filter(e => e.status === 'husband').length;
+  const cWife = entries.filter(e => e.status === 'wife').length;
+  const cMixed = entries.filter(e => e.status === 'mixed').length;
+
   if (!provinceLegend) {
     provinceLegend = L.control({ position: 'bottomleft' });
     provinceLegend.onAdd = () => {
@@ -778,7 +818,18 @@ function updateProvinceLayer() {
   }
   provinceLegend.getContainer().innerHTML =
     `<div class="province-legend-title">🗺️ Đã đi <b>${count}/${total}</b> tỉnh thành</div>` +
-    `<div class="province-legend-bar"><div style="width:${(count / total * 100).toFixed(1)}%"></div></div>`;
+    `<div class="province-legend-bar">` +
+      `<span style="width:${(cBoth / total * 100).toFixed(1)}%;background:#F43F5E"></span>` +
+      `<span style="width:${(cHusband / total * 100).toFixed(1)}%;background:#38BDF8"></span>` +
+      `<span style="width:${(cWife / total * 100).toFixed(1)}%;background:#C084FC"></span>` +
+      `<span style="width:${(cMixed / total * 100).toFixed(1)}%;background:#FBBF24"></span>` +
+    `</div>` +
+    `<div class="province-legend-dots">` +
+      `<span><i style="background:#F43F5E"></i>Cả 2 (${cBoth})</span>` +
+      `<span><i style="background:#38BDF8"></i>Chồng (${cHusband})</span>` +
+      `<span><i style="background:#C084FC"></i>Vợ (${cWife})</span>` +
+      (cMixed ? `<span><i style="background:#FBBF24"></i>Riêng (${cMixed})</span>` : '') +
+    `</div>`;
 }
 
 function renderMapMarkers() {
@@ -1711,7 +1762,8 @@ const ALL_MODALS = [
   ['add-dest-modal', closeAddDestinationModal],
   ['pin-modal', closePinModal],
   ['export-modal', closeExportModal],
-  ['reset-modal', closeResetModal]
+  ['reset-modal', closeResetModal],
+  ['passport-modal', () => typeof closePassportModal === 'function' && closePassportModal()]
 ];
 
 document.addEventListener('mousedown', e => {
