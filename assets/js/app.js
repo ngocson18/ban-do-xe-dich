@@ -499,25 +499,52 @@ function applyUserProfileUI() {
   renderUserSwitcher();
 }
 
+const CUTE_SOLO_ICONS = ['🦊', '🐼', '🐱', '🐶', '🐰', '🐻', '🐨', '🐧', '🐥', '🦄', '🐸', '🐹', '🦦', '🐝'];
+const CUTE_COUPLE_ICONS = ['🧸', '💞', '🐾', '🌸', '🦋', '🍓', '🌈', '🐣'];
+const CUTE_AVATAR_BGS = [
+  'bg-rose-100 border-rose-200',
+  'bg-amber-100 border-amber-200',
+  'bg-sky-100 border-sky-200',
+  'bg-purple-100 border-purple-200',
+  'bg-emerald-100 border-emerald-200',
+  'bg-pink-100 border-pink-200',
+  'bg-orange-100 border-orange-200'
+];
+
+function getCuteUserAvatar(u) {
+  const key = String((u && u.id) || 'default');
+  if (key === DEFAULT_USER_ID) return { icon: '🧸', bg: 'bg-rose-100 border-rose-200' };
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = ((hash * 31) + key.charCodeAt(i)) >>> 0;
+  const pool = (u && u.mode === 'couple') ? CUTE_COUPLE_ICONS : CUTE_SOLO_ICONS;
+  return {
+    icon: pool[hash % pool.length],
+    bg: CUTE_AVATAR_BGS[hash % CUTE_AVATAR_BGS.length]
+  };
+}
+
 function renderUserSwitcher() {
   const listEl = document.getElementById('user-switcher-list');
   const users = allUsers.length ? allUsers : [currentUser];
   const cntEl = document.getElementById('switcher-user-count');
   if (cntEl) cntEl.textContent = users.length;
+  const curIconEl = document.getElementById('switcher-current-icon');
+  if (curIconEl) curIconEl.textContent = getCuteUserAvatar(currentUser).icon;
   if (!listEl) return;
   listEl.innerHTML = users.map(u => {
     const active = u.id === currentUserId;
     const isSolo = u.mode === 'solo';
+    const av = getCuteUserAvatar(u);
     return `
       <button onclick="switchUser('${escapeHtml(u.id)}')"
         class="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-amber-50/70 transition ${active ? 'bg-terracotta-50/70' : ''}">
-        <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs font-bold text-white ${isSolo ? 'bg-gradient-to-br from-orange-400 to-amber-500' : 'bg-gradient-to-br from-rose-500 to-terracotta-600'}">
-          ${escapeHtml(getInitials(u.name))}
+        <div class="w-9 h-9 rounded-2xl shrink-0 border flex items-center justify-center text-lg shadow-2xs ${av.bg}">
+          ${av.icon}
         </div>
         <div class="min-w-0 flex-1">
           <div class="text-xs font-bold text-stone-800 truncate">${escapeHtml(u.name)}</div>
           <div class="text-[10px] text-stone-400 flex items-center gap-1.5">
-            <span>${isSolo ? '👤 Cá nhân' : '💑 Cặp đôi'}</span>
+            <span>${isSolo ? '✨ Cá nhân' : '💕 Cặp đôi'}</span>
             <span>•</span>
             <span>${u.placesCount || 0} điểm</span>
           </div>
@@ -712,7 +739,7 @@ function updateModeUI() {
   } else {
     btn.className = 'px-3.5 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 text-xs sm:text-sm font-medium transition flex items-center gap-1.5';
     icon.className = 'fa-solid fa-lock text-stone-500';
-    label.textContent = 'Chế độ xem';
+    label.textContent = 'Chỉnh sửa';
     toolbar.classList.add('hidden');
   }
   updateAllUI();
@@ -974,6 +1001,11 @@ ${isOwnerMode && photos.length > 0 ? `
                                 <i class="fa-regular fa-comment-dots"></i>
                                 <span>${(dest.comments || []).length > 0 ? dest.comments.length : 'Bình luận'}</span>
                             </button>
+                            <button onclick="openWeatherModal('${dest.id}')"
+                                class="card-wx-btn px-2 py-1.5 rounded-xl text-[11px] font-medium border bg-sky-50/70 text-sky-700 border-sky-200/80 hover:bg-sky-100 transition flex items-center gap-1"
+                                title="Xem dự báo thời tiết 5 ngày">
+                                ${typeof getCardWeatherBtnLabel === 'function' ? getCardWeatherBtnLabel(dest.id) : '<i class="fa-solid fa-cloud-sun"></i>'}
+                            </button>
                         </div>
 
                         <!-- Danh sách trải nghiệm con -->
@@ -1035,6 +1067,7 @@ function updateAllUI() {
   renderCards();
   renderMapMarkers();
   renderBadges();
+  if (typeof syncLiveWeatherEffects === 'function') syncLiveWeatherEffects();
 }
 
 // ==========================================
@@ -1256,16 +1289,21 @@ function renderMapMarkers() {
                         ${checkedList}
                         ${uncheckedList}
                     </ul>
+                    <button onclick="openWeatherModal('${dest.id}')" class="mt-2 w-full py-1 px-2 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[11px] font-semibold transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-cloud-sun"></i> Xem thời tiết lúc này
+                    </button>
                 </div>
             `;
 
     const marker = L.marker([dest.lat, dest.lng], { icon }).bindPopup(popupHTML);
+    marker.on('click', () => { if (typeof setMapWeatherFocus === 'function') setMapWeatherFocus(dest.id); });
     markersLayer.addLayer(marker);
   });
 }
 
 function focusOnMap(lat, lng, destId) {
   if (!map) return;
+  if (typeof setMapWeatherFocus === 'function') setMapWeatherFocus(destId);
   document.getElementById('vietnam-map').scrollIntoView({ behavior: 'smooth', block: 'center' });
   map.setView([lat, lng], 8, { animate: true });
 }
@@ -2172,7 +2210,8 @@ const ALL_MODALS = [
   ['export-modal', closeExportModal],
   ['reset-modal', closeResetModal],
   ['passport-modal', () => typeof closePassportModal === 'function' && closePassportModal()],
-  ['create-user-modal', closeCreateUserModal]
+  ['create-user-modal', closeCreateUserModal],
+  ['weather-modal', () => typeof closeWeatherModal === 'function' && closeWeatherModal()]
 ];
 
 document.addEventListener('click', e => {

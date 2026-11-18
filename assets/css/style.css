@@ -110,3 +110,118 @@ body {
 @keyframes scenicPop { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .scenic-card-show { animation: scenicPop .18s ease-out both; }
 .scenic-thumb { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; background: linear-gradient(110deg, #f5f5f4 30%, #e7e5e4 50%, #f5f5f4 70%); background-size: 200% 100%; }
+
+/* ==========================================
+   HIỆU ỨNG THỜI TIẾT MOTION (WEATHER SCENE)
+   ========================================== */
+.wx-bg-clear-day    { background: linear-gradient(135deg, #0284c7, #38bdf8 55%, #7dd3fc); }
+.wx-bg-clear-night  { background: linear-gradient(135deg, #0f172a, #1e1b4b 60%, #312e81); }
+.wx-bg-partly-day   { background: linear-gradient(135deg, #0369a1, #38bdf8 60%, #bae6fd); }
+.wx-bg-partly-night { background: linear-gradient(135deg, #0f172a, #1e293b 60%, #334155); }
+.wx-bg-cloudy-day   { background: linear-gradient(135deg, #475569, #64748b 60%, #94a3b8); }
+.wx-bg-cloudy-night { background: linear-gradient(135deg, #0f172a, #1e293b 60%, #475569); }
+.wx-bg-fog          { background: linear-gradient(135deg, #64748b, #94a3b8 55%, #cbd5e1); }
+.wx-bg-rain-light   { background: linear-gradient(135deg, #334155, #475569 55%, #64748b); }
+.wx-bg-rain         { background: linear-gradient(135deg, #1e293b, #334155 55%, #475569); }
+.wx-bg-rain-heavy   { background: linear-gradient(135deg, #0f172a, #1e293b 55%, #334155); }
+.wx-bg-storm        { background: linear-gradient(135deg, #090d16, #1e1b4b 50%, #312e81); }
+.wx-bg-snow         { background: linear-gradient(135deg, #334155, #64748b 55%, #94a3b8); }
+
+/* Mặt trời phát sáng & xoay tia */
+.wx-sun-wrap { position: absolute; right: 22px; top: 12px; width: 76px; height: 76px; pointer-events: none; z-index: 1; }
+.wx-sun-core { position: absolute; inset: 15px; border-radius: 9999px; background: radial-gradient(circle, #fef08a 20%, #facc15 65%, #f59e0b); box-shadow: 0 0 28px rgba(253, 224, 71, 0.85), 0 0 56px rgba(250, 204, 21, 0.45); animation: wxPulse 3.6s ease-in-out infinite; }
+.wx-sun-rays { position: absolute; inset: 0; border-radius: 9999px; background: repeating-conic-gradient(rgba(254, 240, 138, 0.42) 0deg 14deg, transparent 14deg 30deg); -webkit-mask-image: radial-gradient(circle, transparent 42%, black 50%, transparent 74%); mask-image: radial-gradient(circle, transparent 42%, black 50%, transparent 74%); animation: wxSpin 22s linear infinite; }
+@keyframes wxSpin { to { transform: rotate(360deg); } }
+@keyframes wxPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.09); } }
+
+/* Trăng & sao lấp lánh */
+.wx-moon { position: absolute; right: 32px; top: 20px; width: 46px; height: 46px; border-radius: 9999px; box-shadow: -11px 7px 0 2px #fef9c3; filter: drop-shadow(0 0 14px rgba(254, 249, 195, 0.65)); pointer-events: none; z-index: 1; animation: wxFloat 5s ease-in-out infinite; }
+.wx-star { position: absolute; border-radius: 9999px; background: #fff; box-shadow: 0 0 6px #fff; pointer-events: none; z-index: 1; animation: wxTwinkle 2.6s ease-in-out infinite; }
+@keyframes wxTwinkle { 0%, 100% { opacity: 0.25; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.3); } }
+@keyframes wxFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+/* Mây trôi đa lớp */
+.wx-cloud { position: absolute; left: -140px; width: 112px; height: 34px; border-radius: 9999px; background: rgba(255, 255, 255, 0.42); filter: blur(0.4px); pointer-events: none; z-index: 2; animation: wxCloudDrift 24s linear infinite; }
+.wx-cloud::before, .wx-cloud::after { content: ''; position: absolute; border-radius: 9999px; background: inherit; }
+.wx-cloud::before { width: 52px; height: 52px; top: -24px; left: 18px; }
+.wx-cloud::after { width: 38px; height: 38px; top: -15px; right: 18px; }
+.wx-cloud-dark { background: rgba(148, 163, 184, 0.34); }
+@keyframes wxCloudDrift { from { left: -150px; } to { left: calc(100% + 140px); } }
+
+/* Sương mù trôi nhẹ */
+.wx-fog { position: absolute; left: -40%; width: 180%; height: 48px; border-radius: 9999px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.34) 30%, rgba(255,255,255,0.45) 55%, transparent); filter: blur(10px); pointer-events: none; z-index: 2; }
+.wx-fog-1 { top: 20%; animation: wxFogMove 14s ease-in-out infinite alternate; }
+.wx-fog-2 { top: 48%; animation: wxFogMove 18s ease-in-out infinite alternate-reverse; }
+.wx-fog-3 { top: 72%; animation: wxFogMove 11s ease-in-out infinite alternate; }
+@keyframes wxFogMove { from { transform: translateX(-10%); } to { transform: translateX(10%); } }
+
+/* Hạt mưa rơi xiên */
+.wx-drop { position: absolute; top: -26px; width: 1.6px; border-radius: 9999px; background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(186, 230, 253, 0.85)); pointer-events: none; z-index: 3; animation: wxRainFall 0.75s linear infinite; }
+@keyframes wxRainFall { from { transform: translate(0, 0) rotate(12deg); opacity: 0.9; } to { transform: translate(-24px, 240px) rotate(12deg); opacity: 0.25; } }
+
+/* Chớp & tia sét */
+.wx-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 4; animation: wxFlash 5.5s infinite; }
+.wx-bolt { position: absolute; right: 64px; top: 18px; width: 34px; height: 64px; opacity: 0; pointer-events: none; z-index: 4; filter: drop-shadow(0 0 10px #fef08a); animation: wxBolt 5.5s infinite; }
+@keyframes wxFlash { 0%, 84%, 88%, 92%, 100% { opacity: 0; } 85% { opacity: 0.36; } 89% { opacity: 0.22; } }
+@keyframes wxBolt  { 0%, 84%, 88%, 100% { opacity: 0; } 85%, 87% { opacity: 0.95; } }
+
+/* Tuyết rơi */
+.wx-flake { position: absolute; top: -14px; border-radius: 9999px; background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 6px rgba(255,255,255,0.6); pointer-events: none; z-index: 3; animation: wxSnowFall 4s linear infinite; }
+@keyframes wxSnowFall { 0% { transform: translate(0, 0); opacity: 0.95; } 50% { transform: translate(14px, 115px); } 100% { transform: translate(-8px, 230px); opacity: 0.2; } }
+
+/* Hiệu ứng thời tiết trực tiếp TRÊN BẢN ĐỒ LEAFLET */
+.map-wx-ambient {
+  z-index: 15;
+  opacity: 0.78;
+  transition: opacity 0.35s ease;
+}
+.map-wx-tint-clear-day    { background: radial-gradient(circle at 90% 10%, rgba(253, 224, 71, 0.22), transparent 46%); }
+.map-wx-tint-clear-night  { background: linear-gradient(180deg, rgba(15, 23, 42, 0.28), transparent 62%); }
+.map-wx-tint-partly-day   { background: radial-gradient(circle at 88% 10%, rgba(254, 240, 138, 0.16), transparent 42%); }
+.map-wx-tint-partly-night { background: linear-gradient(180deg, rgba(15, 23, 42, 0.24), transparent 58%); }
+.map-wx-tint-cloudy-day   { background: linear-gradient(180deg, rgba(100, 116, 139, 0.18), transparent 55%); }
+.map-wx-tint-cloudy-night { background: linear-gradient(180deg, rgba(15, 23, 42, 0.28), transparent 60%); }
+.map-wx-tint-fog          { background: linear-gradient(180deg, rgba(226, 232, 240, 0.38), rgba(226, 232, 240, 0.14) 55%, transparent); }
+.map-wx-tint-rain-light,
+.map-wx-tint-rain,
+.map-wx-tint-rain-heavy   { background: linear-gradient(180deg, rgba(30, 41, 59, 0.22), rgba(51, 65, 85, 0.08) 65%, transparent); }
+.map-wx-tint-storm        { background: linear-gradient(180deg, rgba(15, 23, 42, 0.32), rgba(30, 27, 75, 0.14) 65%, transparent); }
+.map-wx-tint-snow         { background: linear-gradient(180deg, rgba(186, 230, 253, 0.24), transparent 65%); }
+
+/* Pin thời tiết động tại từng điểm trên bản đồ */
+.map-wx-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  font-size: 10px;
+  font-weight: 800;
+  color: #1c1917;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.18s ease;
+}
+.map-wx-badge:hover { transform: scale(1.14); z-index: 999 !important; }
+.mwx-ic { display: inline-block; font-size: 12px; line-height: 1; }
+.mwx-sun .mwx-ic { animation: wxSpin 14s linear infinite; }
+.mwx-sun { background: rgba(255, 251, 235, 0.95); border-color: #fcd34d; }
+.mwx-sun-halo { position: absolute; inset: -4px; border-radius: 9999px; border: 1.5px solid rgba(251, 191, 36, 0.55); animation: wxPulse 2.4s ease-in-out infinite; pointer-events: none; }
+.mwx-moon { background: rgba(30, 27, 75, 0.88); color: #fef9c3; border-color: rgba(165, 180, 252, 0.4); }
+.mwx-moon .mwx-ic { animation: wxFloat 3.4s ease-in-out infinite; }
+.mwx-cloud .mwx-ic { animation: wxFloat 4s ease-in-out infinite; }
+.mwx-fog { background: rgba(241, 245, 249, 0.94); border-color: #cbd5e1; }
+.mwx-mist-ring { position: absolute; inset: -3px; border-radius: 9999px; background: rgba(203, 213, 225, 0.35); filter: blur(3px); animation: wxPulse 3s ease-in-out infinite; pointer-events: none; z-index: -1; }
+.mwx-rain { background: rgba(224, 242, 254, 0.95); border-color: #7dd3fc; color: #0c4a6e; }
+.mwx-storm { background: rgba(30, 27, 75, 0.92); border-color: #fde047; color: #fef08a; animation: mwxStormPulse 4s infinite; }
+@keyframes mwxStormPulse { 0%, 86%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.22); } 88% { box-shadow: 0 0 14px rgba(254, 240, 138, 0.95); } }
+.mwx-drops { position: absolute; left: 6px; right: 6px; bottom: -10px; height: 11px; overflow: hidden; pointer-events: none; display: flex; justify-content: space-around; }
+.mwx-drops i { display: block; width: 1.5px; height: 6px; border-radius: 9999px; background: #0284c7; animation: mwxDrop 0.65s linear infinite; }
+.mwx-drops i:nth-child(2) { animation-delay: -0.22s; }
+.mwx-drops i:nth-child(3) { animation-delay: -0.44s; }
+.mwx-storm .mwx-drops i { background: #93c5fd; }
+@keyframes mwxDrop { from { transform: translateY(-4px); opacity: 0.95; } to { transform: translateY(10px); opacity: 0; } }
