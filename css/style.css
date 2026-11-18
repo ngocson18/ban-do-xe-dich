@@ -1,0 +1,48 @@
+body {
+  background-color: #FAF8F5;
+  color: #292524;
+}
+
+.leaflet-container {
+  font-family: 'Inter', sans-serif !important;
+  z-index: 10;
+}
+
+.custom-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: white;
+  font-weight: 700;
+  font-size: 11px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  border: 2.5px solid white;
+  transition: transform 0.2s ease;
+}
+
+.custom-pin:hover {
+  transform: scale(1.25);
+  z-index: 999 !important;
+}
+
+.pin-both {
+  background: linear-gradient(135deg, #E11D48, #F43F5E);
+}
+
+.pin-wife {
+  background: linear-gradient(135deg, #9333EA, #C084FC);
+}
+
+.pin-husband {
+  background: linear-gradient(135deg, #0284C7, #38BDF8);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
