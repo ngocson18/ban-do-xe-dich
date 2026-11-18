@@ -30,20 +30,54 @@
         </div>
         <div>
           <h1 class="font-serif text-lg sm:text-xl font-bold text-stone-900 leading-tight">
-            Nhật Ký Xê Dịch <span class="text-terracotta-600">Ngọc Sơn & Huyền Thương</span>
+            Nhật Ký Xê Dịch <span id="header-owner-name" class="text-terracotta-600">Ngọc Sơn &amp; Huyền Thương</span>
           </h1>
-          <div class="flex items-center gap-3 text-xs text-stone-500 mt-0.5">
-            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Cả hai
-              cùng đi</span>
-            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500"></span> Vợ đã
-              đi</span>
-            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-sky-500"></span> Chồng đã
-              đi</span>
+          <div id="header-couple-legend" class="flex items-center gap-3 text-xs text-stone-500 mt-0.5">
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span> <span id="lbl-hdr-both">Cả hai cùng đi</span></span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500"></span> <span id="lbl-hdr-wife">Vợ đã đi</span></span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-sky-500"></span> <span id="lbl-hdr-husband">Chồng đã đi</span></span>
           </div>
+          <p id="header-solo-subtitle" class="hidden text-xs text-stone-500 mt-0.5">Nhật ký xê dịch cá nhân</p>
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Switcher chuyển giữa các người dùng -->
+        <div class="relative" id="user-switcher-wrap">
+          <button id="user-switcher-btn" onclick="toggleUserSwitcher()"
+            class="px-3 py-2 rounded-xl bg-white hover:bg-stone-50 text-stone-800 border border-stone-200 text-xs sm:text-sm font-semibold shadow-2xs transition flex items-center gap-1.5"
+            title="Chuyển xem nhật ký của người khác">
+            <i class="fa-solid fa-users text-terracotta-500"></i>
+            <span id="switcher-current-name" class="max-w-[130px] truncate">Ngọc Sơn &amp; Huyền Thương</span>
+            <span id="switcher-user-count" class="px-1.5 py-0.5 rounded-full bg-terracotta-100 text-terracotta-700 text-[10px] font-bold">1</span>
+            <i class="fa-solid fa-chevron-down text-[10px] text-stone-400"></i>
+          </button>
+          <div id="user-switcher-menu"
+            class="hidden absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-stone-200 z-50 overflow-hidden">
+            <div class="px-3.5 py-2.5 bg-stone-50 border-b border-stone-100 flex items-center justify-between">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-stone-500">Danh sách nhật ký</span>
+              <button onclick="copyShareUserLink()"
+                class="text-[11px] font-semibold text-terracotta-600 hover:text-terracotta-700 flex items-center gap-1">
+                <i class="fa-solid fa-link"></i> Copy link
+              </button>
+            </div>
+            <div id="user-switcher-list" class="max-h-64 overflow-y-auto divide-y divide-stone-100"></div>
+            <div class="p-2.5 bg-stone-50 border-t border-stone-100">
+              <button onclick="openCreateUserModal()"
+                class="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-terracotta-500 to-rose-500 hover:from-terracotta-600 hover:to-rose-600 text-white text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Tạo nhật ký của riêng tôi</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button onclick="openCreateUserModal()"
+          class="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+          <i class="fa-solid fa-user-plus"></i>
+          <span>Tạo của riêng tôi</span>
+        </button>
+
         <button onclick="openAddDestinationModal()"
           class="px-3.5 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs sm:text-sm font-semibold shadow-sm transition flex items-center gap-1.5">
           <i class="fa-solid fa-plus"></i>
@@ -136,19 +170,34 @@
             </div>
           </div>
 
-          <!-- Phân bổ người đi -->
-          <div class="mt-5 space-y-2.5 bg-white/5 border border-white/10 rounded-2xl p-4">
+          <!-- Phân bổ người đi (Cặp đôi) -->
+          <div id="couple-breakdown-box" class="mt-5 space-y-2.5 bg-white/5 border border-white/10 rounded-2xl p-4">
             <div class="flex items-center justify-between text-xs">
-              <span class="text-rose-300 font-medium"><i class="fa-solid fa-heart mr-1.5"></i>Cả hai cùng đi</span>
+              <span class="text-rose-300 font-medium"><i class="fa-solid fa-heart mr-1.5"></i><span id="lbl-stat-both">Cả hai cùng đi</span></span>
               <span id="stat-both-count" class="font-bold text-white">9 điểm</span>
             </div>
             <div class="flex items-center justify-between text-xs">
-              <span class="text-sky-300 font-medium"><i class="fa-solid fa-mars mr-1.5"></i>Chồng đã đi</span>
+              <span class="text-sky-300 font-medium"><i class="fa-solid fa-mars mr-1.5"></i><span id="lbl-stat-husband">Chồng đã đi</span></span>
               <span id="stat-husband-count" class="font-bold text-white">9 điểm</span>
             </div>
             <div class="flex items-center justify-between text-xs">
-              <span class="text-purple-300 font-medium"><i class="fa-solid fa-venus mr-1.5"></i>Vợ đã đi</span>
+              <span class="text-purple-300 font-medium"><i class="fa-solid fa-venus mr-1.5"></i><span id="lbl-stat-wife">Vợ đã đi</span></span>
               <span id="stat-wife-count" class="font-bold text-white">4 điểm</span>
+            </div>
+          </div>
+          <!-- Tóm tắt hành trình cá nhân -->
+          <div id="solo-summary-box" class="hidden mt-5 space-y-2.5 bg-white/5 border border-white/10 rounded-2xl p-4">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-amber-300 font-medium"><i class="fa-solid fa-map mr-1.5"></i>Tỉnh thành đã phủ</span>
+              <span id="stat-solo-provinces" class="font-bold text-white">0/63 tỉnh</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-emerald-300 font-medium"><i class="fa-solid fa-utensils mr-1.5"></i>Món ngon đã thử</span>
+              <span id="stat-solo-food" class="font-bold text-white">0 món</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-rose-300 font-medium"><i class="fa-solid fa-heart mr-1.5"></i>Lượt yêu thích</span>
+              <span id="stat-solo-reactions" class="font-bold text-white">0 tim</span>
             </div>
           </div>
         </div>
@@ -204,16 +253,16 @@
             Tất cả (<span id="count-all">22</span>)
           </button>
           <button onclick="setFilter('both')" data-filter="both"
-            class="filter-btn px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
-            ❤️ Cả hai (<span id="count-both">9</span>)
+            class="filter-btn couple-only-ui px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
+            ❤️ <span id="lbl-flt-both">Cả hai</span> (<span id="count-both">9</span>)
           </button>
           <button onclick="setFilter('husband')" data-filter="husband"
-            class="filter-btn px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
-            💙 Chồng đi (<span id="count-husband">9</span>)
+            class="filter-btn couple-only-ui px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
+            💙 <span id="lbl-flt-husband">Chồng đi</span> (<span id="count-husband">9</span>)
           </button>
           <button onclick="setFilter('wife')" data-filter="wife"
-            class="filter-btn px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
-            🌸 Vợ đi (<span id="count-wife">4</span>)
+            class="filter-btn couple-only-ui px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
+            🌸 <span id="lbl-flt-wife">Vợ đi</span> (<span id="count-wife">4</span>)
           </button>
           <button onclick="setFilter('incomplete')" data-filter="incomplete"
             class="filter-btn px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
@@ -253,6 +302,74 @@
   <!-- Floating Hover Comments (bong bóng truyện tranh) -->
   <div id="hover-comments" class="fixed inset-0 pointer-events-none z-50 hidden"></div>
 
+  <!-- Modal Tạo Nhật Ký Của Riêng Tôi (Cá nhân) -->
+  <div id="create-user-modal" class="fixed inset-0 bg-black/55 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-stone-100">
+      <div class="flex items-center justify-between pb-3 border-b border-stone-100">
+        <div>
+          <h3 class="font-bold text-stone-900 text-base">✨ Tạo Nhật Ký Của Riêng Bạn</h3>
+          <p class="text-[11px] text-stone-400 mt-0.5">Bắt đầu từ bản đồ trống — tự tay đánh dấu từng chuyến đi</p>
+        </div>
+        <button onclick="closeCreateUserModal()"
+          class="w-8 h-8 rounded-full hover:bg-stone-100 text-stone-500 flex items-center justify-center shrink-0">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="space-y-3.5 mt-4 text-xs">
+        <div>
+          <label class="block font-semibold text-stone-700 mb-1.5">Kiểu nhật ký</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="setCreateUserMode('solo')" data-cmode="solo"
+              class="cmode-btn px-3 py-2 rounded-xl border-2 border-terracotta-500 bg-terracotta-50 text-terracotta-800 font-bold text-left transition">
+              <div>👤 Cá nhân</div>
+              <div class="text-[10px] font-normal text-stone-500 mt-0.5">Hành trình của riêng mình</div>
+            </button>
+            <button type="button" onclick="setCreateUserMode('couple')" data-cmode="couple"
+              class="cmode-btn px-3 py-2 rounded-xl border border-stone-200 bg-white text-stone-700 font-semibold text-left hover:bg-stone-50 transition">
+              <div>💑 Cặp đôi</div>
+              <div class="text-[10px] font-normal text-stone-500 mt-0.5">Bạn trai · Bạn gái · Cùng đi</div>
+            </button>
+          </div>
+        </div>
+        <div>
+          <label id="create-user-name-label" class="block font-semibold text-stone-700 mb-1">Tên hiển thị của bạn *</label>
+          <input type="text" id="create-user-name" maxlength="40" placeholder="Ví dụ: Minh Anh, Quốc Bảo..."
+            class="w-full px-3 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:border-terracotta-500">
+        </div>
+        <div>
+          <label class="block font-semibold text-stone-700 mb-1">Dòng mô tả / slogan (tùy chọn)</label>
+          <input type="text" id="create-user-subtitle" maxlength="70" placeholder="Ví dụ: Đi khắp Việt Nam trước tuổi 30"
+            class="w-full px-3 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:border-terracotta-500">
+        </div>
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block font-semibold text-stone-700 mb-1">Mã PIN cá nhân * (≥ 4 ký tự)</label>
+            <input type="password" id="create-user-pin" maxlength="20" placeholder="Đặt mã PIN..."
+              class="w-full px-3 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:border-terracotta-500">
+          </div>
+          <div>
+            <label class="block font-semibold text-stone-700 mb-1">Nhập lại mã PIN *</label>
+            <input type="password" id="create-user-pin2" maxlength="20" placeholder="Nhập lại PIN..."
+              onkeydown="if(event.key==='Enter') submitCreateUser()"
+              class="w-full px-3 py-2.5 rounded-xl border border-stone-200 focus:outline-none focus:border-terracotta-500">
+          </div>
+        </div>
+        <p class="text-[11px] text-stone-400 bg-stone-50 rounded-xl px-3 py-2">
+          🔒 Mã PIN được mã hóa trên server. Mọi người có thể xem &amp; bình luận, nhưng chỉ có bạn mới chỉnh sửa được nhật ký của mình.
+        </p>
+        <p id="create-user-error" class="text-xs text-red-500 font-medium hidden"></p>
+      </div>
+      <div class="flex justify-end gap-2 mt-5 pt-3 border-t border-stone-100">
+        <button onclick="closeCreateUserModal()"
+          class="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold">Hủy</button>
+        <button id="create-user-submit-btn" onclick="submitCreateUser()"
+          class="px-5 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-check"></i> Tạo nhật ký ngay
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Nhập Mã PIN -->
   <div id="pin-modal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-stone-100">
@@ -261,9 +378,9 @@
         <i class="fa-solid fa-key text-xl"></i>
       </div>
       <h3 class="text-lg font-bold text-center text-stone-900">Mở Khóa Chỉnh Sửa</h3>
-      <p class="text-xs text-stone-500 text-center mt-1">Nhập mã PIN của chủ nhân để tích chọn, thêm ảnh hoặc tạo địa
+      <p id="pin-modal-desc" class="text-xs text-stone-500 text-center mt-1">Nhập mã PIN của chủ nhân để tích chọn, thêm ảnh hoặc tạo địa
         điểm mới.</p>
-      <input type="password" id="pin-input" maxlength="10" onkeydown="if(event.key==='Enter') submitPin()"
+      <input type="password" id="pin-input" maxlength="20" onkeydown="if(event.key==='Enter') submitPin()"
         placeholder="Nhập mã PIN..."
         class="w-full mt-4 px-4 py-2.5 rounded-xl border border-stone-300 text-center text-lg tracking-widest font-bold focus:outline-none focus:border-terracotta-500">
       <p id="pin-error" class="text-xs text-red-500 text-center mt-2 hidden">Mã PIN không chính xác, vui lòng thử lại!
@@ -271,7 +388,7 @@
       <div class="flex gap-2 mt-5">
         <button onclick="closePinModal()"
           class="flex-1 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold">Hủy</button>
-        <button onclick="submitPin()"
+        <button id="pin-submit-btn" onclick="submitPin()"
           class="flex-1 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-semibold">Xác
           nhận</button>
       </div>
@@ -316,7 +433,7 @@
               <option value="Miền Nam">Miền Nam</option>
             </select>
           </div>
-          <div>
+          <div id="new-dest-who-wrap">
             <label class="block font-semibold text-stone-700 mb-1">Ai đã đi?</label>
             <select id="new-dest-who" class="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white">
               <option value="both">❤️ Cả hai cùng đi</option>

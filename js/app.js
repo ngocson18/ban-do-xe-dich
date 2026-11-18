@@ -1,9 +1,15 @@
 // ==========================================
 // 1. DỮ LIỆU GỐC & KẾT NỐI GOOGLE SHEETS BACKEND
 // ==========================================
-const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxQ57X8gQq_6JYTppE_JEeB3qk7WzCdf0z66yFeJGcUEt5XGEEeGWzMYF6Z0mwmv6xl/exec';
-const OWNER_PIN = '182001';
+const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbz5gbw6qb459gdjsqEhRnJXihi4N8sWjv3IPqBExsROcbE7mvuaacsVf9zxHMKojZIF/exec';
 const STORAGE_KEY = 'couple_travel_journal_son_thuong_v1';
+const DEFAULT_USER_ID = 'default';
+const DEFAULT_USER_META = {
+  id: DEFAULT_USER_ID,
+  name: 'Ngọc Sơn & Huyền Thương',
+  mode: 'couple',
+  subtitle: 'Cùng nhau vẽ kín bản đồ Việt Nam'
+};
 
 const PROVINCE_PRESETS = [
   { name: 'Hà Giang', region: 'Miền Bắc', lat: 22.8233, lng: 104.9836 },
@@ -241,6 +247,22 @@ const PRELOADED_DATA = [
 // ==========================================
 let destinations = [];
 let isOwnerMode = false;
+let sessionPin = '';
+let currentUserId = DEFAULT_USER_ID;
+let currentUser = Object.assign({}, DEFAULT_USER_META);
+const USERS_CACHE_KEY = 'nhat_ky_users_cache_v1';
+function loadCachedUsers() {
+  try {
+    const raw = localStorage.getItem(USERS_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed) && parsed.length) return parsed;
+  } catch (e) { }
+  return [Object.assign({ placesCount: 0 }, DEFAULT_USER_META)];
+}
+function saveCachedUsers() {
+  try { localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(allUsers)); } catch (e) { }
+}
+let allUsers = loadCachedUsers();
 let currentFilter = 'all';
 let searchQuery = '';
 let map = null;
@@ -248,19 +270,62 @@ let markersLayer = null;
 let syncTimeout = null;
 let currentPhotoDestId = null;
 
+function isSoloMode() {
+  return !!(currentUser && currentUser.mode === 'solo');
+}
+
+function getWhoLabels() {
+  if (currentUserId === DEFAULT_USER_ID) {
+    return {
+      both: 'Cả hai cùng đi', bothShort: 'Cả hai', bothMap: 'Cả 2',
+      husband: 'Chồng đã đi', husbandShort: 'Chồng đi', husbandMap: 'Chồng',
+      wife: 'Vợ đã đi', wifeShort: 'Vợ đi', wifeMap: 'Vợ'
+    };
+  }
+  return {
+    both: 'Đi cùng nhau', bothShort: 'Đi cùng nhau', bothMap: 'Cùng đi',
+    husband: 'Bạn trai đã đi', husbandShort: 'Bạn trai', husbandMap: 'Bạn trai',
+    wife: 'Bạn gái đã đi', wifeShort: 'Bạn gái', wifeMap: 'Bạn gái'
+  };
+}
+
+function getStorageKey(uid = currentUserId) {
+  return uid === DEFAULT_USER_ID ? STORAGE_KEY : `${STORAGE_KEY}_u_${uid}`;
+}
+
 function cloneDefaultData() {
   return JSON.parse(JSON.stringify(PRELOADED_DATA));
 }
 
-function loadLocalData() {
+function loadLocalData(uid = currentUserId) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey(uid));
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) {
+        if (uid !== DEFAULT_USER_ID || parsed.length > 0) return parsed;
+      }
     }
   } catch (e) { }
-  return cloneDefaultData();
+  return uid === DEFAULT_USER_ID ? cloneDefaultData() : [];
+}
+
+function saveLocalCache() {
+  try {
+    localStorage.setItem(getStorageKey(), JSON.stringify(destinations));
+  } catch (e) { }
+}
+
+async function postCloudJson(payload) {
+  if (!GOOGLE_SHEET_API_URL) return { status: 'error', message: 'Chưa cấu hình API URL' };
+  const res = await fetch(GOOGLE_SHEET_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+    redirect: 'follow'
+  });
+  const text = await res.text();
+  return JSON.parse(text);
 }
 
 function setSyncStatus(state, text) {
@@ -279,12 +344,14 @@ function setSyncStatus(state, text) {
 }
 
 function saveData(autoSync = true) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations));
-  } catch (e) { }
+  saveLocalCache();
+  // Cập nhật nhanh số điểm của user hiện tại trên Switcher
+  const me = allUsers.find(u => u.id === currentUserId);
+  if (me) me.placesCount = destinations.length;
+  renderUserSwitcher();
   updateAllUI();
 
-  if (autoSync && isOwnerMode) {
+  if (autoSync && isOwnerMode && sessionPin) {
     clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {
       syncToCloud(false);
@@ -292,10 +359,24 @@ function saveData(autoSync = true) {
   }
 }
 
-async function loadFromCloud() {
+function mergeLocalPending(data) {
+  const localById = {};
+  destinations.forEach(d => { localById[d.id] = d; });
+  data.forEach(d => {
+    const local = localById[d.id];
+    if (local && Array.isArray(local.comments) && local.comments.length) {
+      const have = new Set((d.comments || []).map(c => c.id));
+      const extra = local.comments.filter(c => !have.has(c.id) && c.pending && (Date.now() - new Date(c.time)) < 10 * 60 * 1000);
+      if (extra.length) d.comments = (d.comments || []).concat(extra).sort((a, b) => new Date(a.time) - new Date(b.time));
+    }
+    if (!d.reactions && local && local.reactions) d.reactions = local.reactions;
+  });
+}
+
+async function loadFromCloud(uid = currentUserId) {
   if (!GOOGLE_SHEET_API_URL) return 'error';
   try {
-    const res = await fetch(`${GOOGLE_SHEET_API_URL}?action=read&t=${Date.now()}`, {
+    const res = await fetch(`${GOOGLE_SHEET_API_URL}?action=read&v=2&user=${encodeURIComponent(uid)}&t=${Date.now()}`, {
       method: 'GET',
       redirect: 'follow'
     });
@@ -304,27 +385,33 @@ async function loadFromCloud() {
       setSyncStatus('error', 'Chưa mở quyền Anyone');
       return 'error';
     }
-    const data = JSON.parse(text);
-    if (Array.isArray(data) && data.length > 0) {
-      // Giữ lại bình luận lưu trên máy mà cloud chưa có (tránh bị ghi đè khi tải lại trang)
-      const localById = {};
-      destinations.forEach(d => { localById[d.id] = d; });
-      data.forEach(d => {
-        const local = localById[d.id];
-        if (!local || !Array.isArray(local.comments) || !local.comments.length) return;
-        const have = new Set((d.comments || []).map(c => c.id));
-        const extra = local.comments.filter(c => !have.has(c.id) && c.pending && (Date.now() - new Date(c.time)) < 10 * 60 * 1000);
-        if (extra.length) d.comments = (d.comments || []).concat(extra).sort((a, b) => new Date(a.time) - new Date(b.time));
-      });
-      // Giữ lại reaction cục bộ nếu cloud chưa trả về trường reactions
-      data.forEach(d => {
-        const local = localById[d.id];
-        if (!d.reactions && local && local.reactions) d.reactions = local.reactions;
-      });
+    const parsed = JSON.parse(text);
+
+    // Format mới v2: { status, user, users, destinations }
+    if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.destinations)) {
+      if (Array.isArray(parsed.users) && parsed.users.length) {
+        allUsers = parsed.users;
+        saveCachedUsers();
+      }
+      if (parsed.user) {
+        currentUser = parsed.user;
+        currentUserId = parsed.user.id;
+      }
+      const data = parsed.destinations;
+      mergeLocalPending(data);
       destinations = data;
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations));
-      } catch (e) { }
+      saveLocalCache();
+      applyUserProfileUI();
+      setSyncStatus('ok', 'Đã đồng bộ');
+      return 'loaded';
+    }
+
+    // Tương thích ngược với Apps Script cũ (trả về mảng trực tiếp)
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      mergeLocalPending(parsed);
+      destinations = parsed;
+      saveLocalCache();
+      setSyncStatus('ok', 'Đã đồng bộ');
       return 'loaded';
     }
     return 'empty';
@@ -335,34 +422,276 @@ async function loadFromCloud() {
 }
 
 async function syncToCloud(showNotification = false) {
-  if (!GOOGLE_SHEET_API_URL) return;
-  setSyncStatus('syncing', 'Đang lưu lên Sheets...');
+  if (!GOOGLE_SHEET_API_URL || !sessionPin) return;
+  setSyncStatus('syncing', 'Đang lưu...');
   try {
-    const formBody = new URLSearchParams();
-    formBody.append('pin', OWNER_PIN);
-    formBody.append('data', JSON.stringify(destinations));
-
-    await fetch(GOOGLE_SHEET_API_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      body: formBody
+    const res = await postCloudJson({
+      action: 'save',
+      user: currentUserId,
+      pin: sessionPin,
+      data: destinations
     });
-
-    setTimeout(async () => {
-      const status = await loadFromCloud();
-      if (status === 'loaded') {
-        setSyncStatus('ok', 'Đã đồng bộ');
-        if (showNotification) showToast('Đã lưu và xác nhận dữ liệu trên Google Sheets!');
-      } else {
-        setSyncStatus('error', 'Kiểm tra quyền Deploy');
-        if (showNotification) {
-          showToast('Đã gửi dữ liệu! Nếu chưa thấy cập nhật, hãy kiểm tra quyền Anyone trên Apps Script.');
-        }
-      }
-    }, 1200);
+    if (res && res.status === 'success') {
+      setSyncStatus('ok', 'Đã đồng bộ');
+      if (showNotification) showToast('Đã lưu thành công lên Google Sheets!');
+    } else {
+      setSyncStatus('error', (res && res.message) || 'Lưu thất bại');
+      if (showNotification) showToast((res && res.message) || 'Không lưu được lên Google Sheets.');
+    }
   } catch (e) {
     setSyncStatus('error', 'Lỗi kết nối Cloud');
     if (showNotification) showToast('Không kết nối được Google Sheets.');
+  }
+}
+
+// ==========================================
+// 2b. ĐA NGƯỜI DÙNG: SWITCH USER & TẠO CỦA RIÊNG TÔI
+// ==========================================
+function getInitials(name) {
+  const parts = String(name || '?').trim().split(/\s+/);
+  return (parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2)).toUpperCase();
+}
+
+function applyUserProfileUI() {
+  const name = (currentUser && currentUser.name) || DEFAULT_USER_META.name;
+  const solo = isSoloMode();
+  document.title = `Nhật Ký Hành Trình — ${name}`;
+
+  const hdrName = document.getElementById('header-owner-name');
+  if (hdrName) hdrName.textContent = name;
+  const swName = document.getElementById('switcher-current-name');
+  if (swName) swName.textContent = name;
+
+  const coupleLegend = document.getElementById('header-couple-legend');
+  const soloSub = document.getElementById('header-solo-subtitle');
+  if (coupleLegend) coupleLegend.classList.toggle('hidden', solo);
+  if (soloSub) {
+    soloSub.classList.toggle('hidden', !solo);
+    soloSub.textContent = (currentUser && currentUser.subtitle) || `Nhật ký xê dịch cá nhân của ${name}`;
+  }
+
+  const coupleBox = document.getElementById('couple-breakdown-box');
+  const soloBox = document.getElementById('solo-summary-box');
+  if (coupleBox) coupleBox.classList.toggle('hidden', solo);
+  if (soloBox) soloBox.classList.toggle('hidden', !solo);
+
+  document.querySelectorAll('.couple-only-ui').forEach(el => el.classList.toggle('hidden', solo));
+  const whoWrap = document.getElementById('new-dest-who-wrap');
+  if (whoWrap) whoWrap.classList.toggle('hidden', solo);
+
+  if (!solo) {
+    const lbl = getWhoLabels();
+    const setTxt = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+    setTxt('lbl-hdr-both', lbl.both); setTxt('lbl-hdr-husband', lbl.husband); setTxt('lbl-hdr-wife', lbl.wife);
+    setTxt('lbl-stat-both', lbl.both); setTxt('lbl-stat-husband', lbl.husband); setTxt('lbl-stat-wife', lbl.wife);
+    setTxt('lbl-flt-both', lbl.bothShort); setTxt('lbl-flt-husband', lbl.husbandShort); setTxt('lbl-flt-wife', lbl.wifeShort);
+    const sel = document.getElementById('new-dest-who');
+    if (sel && sel.options.length >= 3) {
+      sel.options[0].textContent = `❤️ ${lbl.both}`;
+      sel.options[1].textContent = `💙 ${lbl.husband}`;
+      sel.options[2].textContent = `🌸 ${lbl.wife}`;
+    }
+  }
+
+  if (solo && (currentFilter === 'both' || currentFilter === 'husband' || currentFilter === 'wife')) {
+    setFilter('all');
+  }
+  renderUserSwitcher();
+}
+
+function renderUserSwitcher() {
+  const listEl = document.getElementById('user-switcher-list');
+  const users = allUsers.length ? allUsers : [currentUser];
+  const cntEl = document.getElementById('switcher-user-count');
+  if (cntEl) cntEl.textContent = users.length;
+  if (!listEl) return;
+  listEl.innerHTML = users.map(u => {
+    const active = u.id === currentUserId;
+    const isSolo = u.mode === 'solo';
+    return `
+      <button onclick="switchUser('${escapeHtml(u.id)}')"
+        class="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 hover:bg-amber-50/70 transition ${active ? 'bg-terracotta-50/70' : ''}">
+        <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center text-xs font-bold text-white ${isSolo ? 'bg-gradient-to-br from-orange-400 to-amber-500' : 'bg-gradient-to-br from-rose-500 to-terracotta-600'}">
+          ${escapeHtml(getInitials(u.name))}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="text-xs font-bold text-stone-800 truncate">${escapeHtml(u.name)}</div>
+          <div class="text-[10px] text-stone-400 flex items-center gap-1.5">
+            <span>${isSolo ? '👤 Cá nhân' : '💑 Cặp đôi'}</span>
+            <span>•</span>
+            <span>${u.placesCount || 0} điểm</span>
+          </div>
+        </div>
+        ${active ? '<i class="fa-solid fa-check text-terracotta-600 text-xs"></i>' : ''}
+      </button>`;
+  }).join('');
+}
+
+async function refreshUsersList() {
+  if (!GOOGLE_SHEET_API_URL) return;
+  try {
+    const res = await fetch(`${GOOGLE_SHEET_API_URL}?action=users&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
+    const parsed = await res.json();
+    if (parsed && Array.isArray(parsed.users) && parsed.users.length) {
+      allUsers = parsed.users;
+      saveCachedUsers();
+      renderUserSwitcher();
+    }
+  } catch (e) { }
+}
+
+function toggleUserSwitcher() {
+  const menu = document.getElementById('user-switcher-menu');
+  if (!menu) return;
+  menu.classList.toggle('hidden');
+  if (!menu.classList.contains('hidden')) {
+    renderUserSwitcher();
+    refreshUsersList();
+  }
+}
+
+function closeUserSwitcher() {
+  const menu = document.getElementById('user-switcher-menu');
+  if (menu) menu.classList.add('hidden');
+}
+
+function copyShareUserLink() {
+  const url = new URL(window.location.href);
+  if (currentUserId === DEFAULT_USER_ID) url.searchParams.delete('u');
+  else url.searchParams.set('u', currentUserId);
+  const link = url.toString();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(() => showToast('Đã sao chép link nhật ký!'));
+  } else {
+    prompt('Sao chép link chia sẻ:', link);
+  }
+  closeUserSwitcher();
+}
+
+async function switchUser(uid) {
+  closeUserSwitcher();
+  if (!uid || uid === currentUserId) return;
+
+  // Chuyển người luôn khóa lại chế độ chỉnh sửa để bảo vệ nhật ký người khác
+  isOwnerMode = false;
+  sessionPin = '';
+  currentUserId = uid;
+  const found = allUsers.find(u => u.id === uid);
+  currentUser = found ? Object.assign({}, found) : { id: uid, name: uid, mode: 'solo', subtitle: '' };
+
+  // Cập nhật URL ?u=<uid>
+  try {
+    const url = new URL(window.location.href);
+    if (uid === DEFAULT_USER_ID) url.searchParams.delete('u');
+    else url.searchParams.set('u', uid);
+    window.history.replaceState({}, '', url.toString());
+  } catch (e) { }
+
+  // Xóa cache tỉnh theo ID phòng trùng lặp và nạp dữ liệu mới
+  Object.keys(provinceCache).forEach(k => delete provinceCache[k]);
+  destinations = loadLocalData(uid);
+  applyUserProfileUI();
+  updateModeUI();
+  showToast(`Đang xem nhật ký của ${currentUser.name}`);
+
+  const st = await loadFromCloud(uid);
+  if (st === 'loaded') updateAllUI();
+}
+
+let createUserMode = 'solo';
+
+function setCreateUserMode(mode) {
+  createUserMode = mode === 'couple' ? 'couple' : 'solo';
+  document.querySelectorAll('.cmode-btn').forEach(btn => {
+    const active = btn.dataset.cmode === createUserMode;
+    btn.className = active
+      ? 'cmode-btn px-3 py-2 rounded-xl border-2 border-terracotta-500 bg-terracotta-50 text-terracotta-800 font-bold text-left transition'
+      : 'cmode-btn px-3 py-2 rounded-xl border border-stone-200 bg-white text-stone-700 font-semibold text-left hover:bg-stone-50 transition';
+  });
+  const lbl = document.getElementById('create-user-name-label');
+  const inp = document.getElementById('create-user-name');
+  if (lbl) lbl.textContent = createUserMode === 'couple' ? 'Tên cặp đôi của hai bạn *' : 'Tên hiển thị của bạn *';
+  if (inp) inp.placeholder = createUserMode === 'couple' ? 'Ví dụ: Minh & Linh, Nam & Trang...' : 'Ví dụ: Minh Anh, Quốc Bảo...';
+}
+
+function openCreateUserModal() {
+  closeUserSwitcher();
+  const modal = document.getElementById('create-user-modal');
+  if (!modal) return;
+  setCreateUserMode('solo');
+  document.getElementById('create-user-name').value = '';
+  document.getElementById('create-user-subtitle').value = '';
+  document.getElementById('create-user-pin').value = '';
+  document.getElementById('create-user-pin2').value = '';
+  const err = document.getElementById('create-user-error');
+  err.textContent = '';
+  err.classList.add('hidden');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  setTimeout(() => document.getElementById('create-user-name').focus(), 80);
+}
+
+function closeCreateUserModal() {
+  const modal = document.getElementById('create-user-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+async function submitCreateUser() {
+  const name = document.getElementById('create-user-name').value.trim();
+  const subtitle = document.getElementById('create-user-subtitle').value.trim();
+  const pin = document.getElementById('create-user-pin').value.trim();
+  const pin2 = document.getElementById('create-user-pin2').value.trim();
+  const err = document.getElementById('create-user-error');
+  const btn = document.getElementById('create-user-submit-btn');
+
+  const showErr = msg => { err.textContent = msg; err.classList.remove('hidden'); };
+  if (name.length < 2) return showErr('Vui lòng nhập tên ít nhất 2 ký tự.');
+  if (pin.length < 4 || pin.length > 20) return showErr('Mã PIN cần dài từ 4 đến 20 ký tự.');
+  if (pin !== pin2) return showErr('Hai lần nhập mã PIN không khớp!');
+
+  err.classList.add('hidden');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang tạo...';
+  try {
+    const res = await postCloudJson({
+      action: 'createUser',
+      name,
+      subtitle,
+      pin,
+      mode: createUserMode
+    });
+    if (!res || res.status !== 'success' || !res.user) {
+      return showErr((res && res.message) || 'Không tạo được nhật ký. Hãy chắc chắn Apps Script đã deploy bản mới!');
+    }
+    if (Array.isArray(res.users)) {
+      allUsers = res.users;
+      saveCachedUsers();
+    }
+    currentUser = res.user;
+    currentUserId = res.user.id;
+    destinations = [];
+    saveLocalCache();
+    sessionPin = pin;
+    isOwnerMode = true;
+
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('u', currentUserId);
+      window.history.replaceState({}, '', url.toString());
+    } catch (e) { }
+
+    closeCreateUserModal();
+    applyUserProfileUI();
+    updateModeUI();
+    if (map) map.setView([16.5, 106.8], 5, { animate: true });
+    showToast(`🎉 Đã tạo nhật ký "${res.user.name}"! Hãy thêm địa điểm đầu tiên nhé.`);
+  } catch (e) {
+    showErr('Lỗi kết nối Google Sheets. Kiểm tra mạng hoặc deploy lại Apps Script!');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Tạo nhật ký ngay';
   }
 }
 
@@ -392,6 +721,7 @@ function updateModeUI() {
 function handleModeToggle() {
   if (isOwnerMode) {
     isOwnerMode = false;
+    sessionPin = '';
     updateModeUI();
     showToast('Đã chuyển sang chế độ Khách xem.');
   } else {
@@ -403,6 +733,8 @@ function openPinModal() {
   const modal = document.getElementById('pin-modal');
   const input = document.getElementById('pin-input');
   const err = document.getElementById('pin-error');
+  const desc = document.getElementById('pin-modal-desc');
+  if (desc) desc.textContent = `Nhập mã PIN của "${currentUser.name}" để thêm địa điểm, tích chọn hoặc chỉnh sửa nhật ký này.`;
   input.value = '';
   err.classList.add('hidden');
   modal.classList.remove('hidden');
@@ -416,15 +748,32 @@ function closePinModal() {
   modal.classList.remove('flex');
 }
 
-function submitPin() {
-  const val = document.getElementById('pin-input').value.trim();
-  if (val === OWNER_PIN) {
-    isOwnerMode = true;
-    closePinModal();
-    updateModeUI();
-    showToast('Đã mở khóa chế độ Chủ nhân!');
-  } else {
-    document.getElementById('pin-error').classList.remove('hidden');
+async function submitPin() {
+  const input = document.getElementById('pin-input');
+  const err = document.getElementById('pin-error');
+  const btn = document.getElementById('pin-submit-btn');
+  const val = input.value.trim();
+  if (!val) return;
+
+  err.classList.add('hidden');
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang kiểm tra...'; }
+  try {
+    const res = await postCloudJson({ action: 'verifyPin', user: currentUserId, pin: val });
+    if (res && res.status === 'success') {
+      sessionPin = val;
+      isOwnerMode = true;
+      closePinModal();
+      updateModeUI();
+      showToast(`Đã mở khóa chỉnh sửa nhật ký "${currentUser.name}"!`);
+    } else {
+      err.textContent = (res && res.message) || 'Mã PIN không chính xác, vui lòng thử lại!';
+      err.classList.remove('hidden');
+    }
+  } catch (e) {
+    err.textContent = 'Không kết nối được server để xác thực PIN. Hãy kiểm tra mạng hoặc deploy lại Apps Script!';
+    err.classList.remove('hidden');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Xác nhận'; }
   }
 }
 
@@ -475,6 +824,17 @@ function updateStats() {
   document.getElementById('count-both').textContent = bothCount;
   document.getElementById('count-husband').textContent = husbandCount;
   document.getElementById('count-wife').textContent = wifeCount;
+
+  if (isSoloMode()) {
+    const st = getBadgeStats();
+    const totalProvs = typeof VN_PROVINCES_GEOJSON !== 'undefined' ? VN_PROVINCES_GEOJSON.features.length : 63;
+    const sp = document.getElementById('stat-solo-provinces');
+    const sf = document.getElementById('stat-solo-food');
+    const sr = document.getElementById('stat-solo-reactions');
+    if (sp) sp.textContent = `${st.provinces}/${totalProvs} tỉnh`;
+    if (sf) sf.textContent = `${st.food} món`;
+    if (sr) sr.textContent = `${st.reactions} lượt`;
+  }
 }
 
 function setFilter(filter) {
@@ -495,24 +855,28 @@ function handleSearch(val) {
 }
 
 function getWhoBadgeHTML(dest) {
+  if (isSoloMode()) {
+    return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">📍 Đã ghé thăm</span>`;
+  }
+  const lbl = getWhoLabels();
   if (isOwnerMode) {
     return `
                 <select onchange="changeDestinationWho('${dest.id}', this.value)" class="text-[11px] font-semibold px-2.5 py-1 rounded-full border cursor-pointer focus:outline-none ${dest.who === 'both' ? 'bg-rose-50 text-rose-700 border-rose-200' :
         dest.who === 'husband' ? 'bg-sky-50 text-sky-700 border-sky-200' :
           'bg-purple-50 text-purple-700 border-purple-200'
       }">
-                    <option value="both" ${dest.who === 'both' ? 'selected' : ''}>❤️ Cả hai cùng đi</option>
-                    <option value="husband" ${dest.who === 'husband' ? 'selected' : ''}>💙 Chồng đã đi</option>
-                    <option value="wife" ${dest.who === 'wife' ? 'selected' : ''}>🌸 Vợ đã đi</option>
+                    <option value="both" ${dest.who === 'both' ? 'selected' : ''}>❤️ ${lbl.both}</option>
+                    <option value="husband" ${dest.who === 'husband' ? 'selected' : ''}>💙 ${lbl.husband}</option>
+                    <option value="wife" ${dest.who === 'wife' ? 'selected' : ''}>🌸 ${lbl.wife}</option>
                 </select>
             `;
   }
   if (dest.who === 'both') {
-    return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">❤️ Cả hai cùng đi</span>`;
+    return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">❤️ ${lbl.both}</span>`;
   } else if (dest.who === 'husband') {
-    return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">💙 Chồng đã đi</span>`;
+    return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">💙 ${lbl.husband}</span>`;
   }
-  return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">🌸 Vợ đã đi</span>`;
+  return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">🌸 ${lbl.wife}</span>`;
 }
 
 function renderCards() {
@@ -536,6 +900,19 @@ function renderCards() {
   }).sort((a, b) => (b.lat || 0) - (a.lat || 0)); // Sắp xếp từ Bắc xuống Nam (vĩ độ giảm dần)
 
   if (filtered.length === 0) {
+    if (destinations.length === 0) {
+      grid.innerHTML = `
+                <div class="col-span-full bg-white rounded-3xl border border-dashed border-stone-300 p-10 text-center">
+                    <div class="text-3xl mb-2">🗺️</div>
+                    <p class="text-sm font-bold text-stone-800">Bản đồ của ${escapeHtml(currentUser.name)} đang trống!</p>
+                    <p class="text-xs text-stone-500 mt-1">${isOwnerMode ? 'Bấm nút bên dưới để thêm địa điểm đầu tiên và bắt đầu tô màu bản đồ Việt Nam.' : 'Chủ nhân chưa thêm địa điểm nào. Nếu đây là nhật ký của bạn, hãy mở khóa bằng mã PIN để thêm địa điểm.'}</p>
+                    <button onclick="openAddDestinationModal()" class="mt-4 px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-semibold shadow-sm transition inline-flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus"></i> Thêm địa điểm đầu tiên
+                    </button>
+                </div>
+            `;
+      return;
+    }
     grid.innerHTML = `
                 <div class="col-span-full bg-white rounded-3xl border border-stone-200 p-10 text-center">
                     <p class="text-sm font-semibold text-stone-700">Không tìm thấy địa điểm phù hợp</p>
@@ -550,7 +927,7 @@ function renderCards() {
     const checkedCount = items.filter(i => i.checked).length;
     const percent = items.length > 0 ? Math.round((checkedCount / items.length) * 100) : 0;
     const photos = dest.photos || [];
-    const borderAccent = dest.who === 'both' ? 'border-rose-200/80' : dest.who === 'husband' ? 'border-sky-200/80' : 'border-purple-200/80';
+    const borderAccent = isSoloMode() ? 'border-amber-200/80' : dest.who === 'both' ? 'border-rose-200/80' : dest.who === 'husband' ? 'border-sky-200/80' : 'border-purple-200/80';
 
     return `
                 <div id="card-${dest.id}" class="bg-white rounded-3xl border ${borderAccent} shadow-xs hover:shadow-md transition flex flex-col justify-between overflow-hidden">
@@ -575,7 +952,7 @@ function renderCards() {
                                     <span class="font-semibold text-stone-700">${percent}%</span>
                                 </div>
                                 <div class="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                                    <div class="h-full rounded-full transition-all duration-300 ${dest.who === 'both' ? 'bg-rose-500' : dest.who === 'husband' ? 'bg-sky-500' : 'bg-purple-500'
+                                    <div class="h-full rounded-full transition-all duration-300 ${isSoloMode() ? 'bg-terracotta-500' : dest.who === 'both' ? 'bg-rose-500' : dest.who === 'husband' ? 'bg-sky-500' : 'bg-purple-500'
       }" style="width: ${percent}%"></div>
                                 </div>
                             </div>
@@ -737,7 +1114,8 @@ const PROVINCE_COLORS = {
   both:    { stroke: '#E11D48', fill: '#F43F5E', opacity: 0.46, label: '❤️ Cả hai cùng đi', icon: '❤️' },
   husband: { stroke: '#0284C7', fill: '#38BDF8', opacity: 0.46, label: '💙 Chồng đã đi',    icon: '💙' },
   wife:    { stroke: '#9333EA', fill: '#C084FC', opacity: 0.46, label: '🌸 Vợ đã đi',       icon: '🌸' },
-  mixed:   { stroke: '#D97706', fill: '#FBBF24', opacity: 0.46, label: '✨ Cả 2 đi riêng',  icon: '✨' }
+  mixed:   { stroke: '#D97706', fill: '#FBBF24', opacity: 0.46, label: '✨ Cả 2 đi riêng',  icon: '✨' },
+  solo:    { stroke: '#C2410C', fill: '#F97316', opacity: 0.48, label: '📍 Đã ghé thăm',    icon: '📍' }
 };
 
 function getVisitedProvincesMap() {
@@ -758,6 +1136,7 @@ function getVisitedProvincesMap() {
     else if (d.who === 'wife') entry.hasWife = true;
   });
   Object.values(visited).forEach(entry => {
+    if (isSoloMode()) { entry.status = 'solo'; return; }
     if (entry.hasBoth) entry.status = 'both';
     else if (entry.hasHusband && entry.hasWife) entry.status = 'mixed';
     else if (entry.hasHusband) entry.status = 'husband';
@@ -783,13 +1162,18 @@ function updateProvinceLayer() {
     onEachFeature: (f, layer) => {
       const entry = visited[f.properties.name];
       if (entry) {
-        const c = PROVINCE_COLORS[entry.status];
+        const lbl = getWhoLabels();
+        const statusLabel = isSoloMode() ? '📍 Đã ghé thăm'
+          : entry.status === 'both' ? `❤️ ${lbl.both}`
+          : entry.status === 'husband' ? `💙 ${lbl.husband}`
+          : entry.status === 'wife' ? `🌸 ${lbl.wife}`
+          : '✨ Cả 2 đi riêng';
         const lines = entry.places.map(p => {
-          const ic = p.who === 'both' ? '❤️' : p.who === 'husband' ? '💙' : '🌸';
+          const ic = isSoloMode() ? '📍' : p.who === 'both' ? '❤️' : p.who === 'husband' ? '💙' : '🌸';
           return `${ic} ${escapeHtml(p.name)}`;
         }).join('<br>');
         layer.bindTooltip(
-          `<b>${escapeHtml(f.properties.name)}</b> <span style="opacity:.75">(${c.label})</span><br>${lines}`,
+          `<b>${escapeHtml(f.properties.name)}</b> <span style="opacity:.75">(${statusLabel})</span><br>${lines}`,
           { sticky: true }
         );
         layer.on('mouseover', () => layer.setStyle({ weight: 2.2, fillOpacity: 0.68 }));
@@ -816,20 +1200,26 @@ function updateProvinceLayer() {
     };
     provinceLegend.addTo(map);
   }
-  provinceLegend.getContainer().innerHTML =
-    `<div class="province-legend-title">🗺️ Đã đi <b>${count}/${total}</b> tỉnh thành</div>` +
-    `<div class="province-legend-bar">` +
-      `<span style="width:${(cBoth / total * 100).toFixed(1)}%;background:#F43F5E"></span>` +
-      `<span style="width:${(cHusband / total * 100).toFixed(1)}%;background:#38BDF8"></span>` +
-      `<span style="width:${(cWife / total * 100).toFixed(1)}%;background:#C084FC"></span>` +
-      `<span style="width:${(cMixed / total * 100).toFixed(1)}%;background:#FBBF24"></span>` +
-    `</div>` +
-    `<div class="province-legend-dots">` +
-      `<span><i style="background:#F43F5E"></i>Cả 2 (${cBoth})</span>` +
-      `<span><i style="background:#38BDF8"></i>Chồng (${cHusband})</span>` +
-      `<span><i style="background:#C084FC"></i>Vợ (${cWife})</span>` +
-      (cMixed ? `<span><i style="background:#FBBF24"></i>Riêng (${cMixed})</span>` : '') +
-    `</div>`;
+  if (isSoloMode()) {
+    provinceLegend.getContainer().innerHTML =
+      `<div class="province-legend-title">🗺️ Đã đi <b>${count}/${total}</b> tỉnh thành</div>` +
+      `<div class="province-legend-bar"><span style="width:${(count / total * 100).toFixed(1)}%;background:#F97316"></span></div>`;
+  } else {
+    provinceLegend.getContainer().innerHTML =
+      `<div class="province-legend-title">🗺️ Đã đi <b>${count}/${total}</b> tỉnh thành</div>` +
+      `<div class="province-legend-bar">` +
+        `<span style="width:${(cBoth / total * 100).toFixed(1)}%;background:#F43F5E"></span>` +
+        `<span style="width:${(cHusband / total * 100).toFixed(1)}%;background:#38BDF8"></span>` +
+        `<span style="width:${(cWife / total * 100).toFixed(1)}%;background:#C084FC"></span>` +
+        `<span style="width:${(cMixed / total * 100).toFixed(1)}%;background:#FBBF24"></span>` +
+      `</div>` +
+      `<div class="province-legend-dots">` +
+        `<span><i style="background:#F43F5E"></i>${getWhoLabels().bothMap} (${cBoth})</span>` +
+        `<span><i style="background:#38BDF8"></i>${getWhoLabels().husbandMap} (${cHusband})</span>` +
+        `<span><i style="background:#C084FC"></i>${getWhoLabels().wifeMap} (${cWife})</span>` +
+        (cMixed ? `<span><i style="background:#FBBF24"></i>Riêng (${cMixed})</span>` : '') +
+      `</div>`;
+  }
 }
 
 function renderMapMarkers() {
@@ -840,8 +1230,9 @@ function renderMapMarkers() {
   destinations.forEach(dest => {
     const items = dest.items || [];
     const checkedCount = items.filter(i => i.checked).length;
-    const pinClass = dest.who === 'both' ? 'pin-both' : dest.who === 'husband' ? 'pin-husband' : 'pin-wife';
-    const whoText = dest.who === 'both' ? '❤️ Cả hai cùng đi' : dest.who === 'husband' ? '💙 Chồng đã đi' : '🌸 Vợ đã đi';
+    const pinClass = isSoloMode() ? 'pin-solo' : dest.who === 'both' ? 'pin-both' : dest.who === 'husband' ? 'pin-husband' : 'pin-wife';
+    const lbl = getWhoLabels();
+    const whoText = isSoloMode() ? '📍 Đã ghé thăm' : dest.who === 'both' ? `❤️ ${lbl.both}` : dest.who === 'husband' ? `💙 ${lbl.husband}` : `🌸 ${lbl.wife}`;
 
     const icon = L.divIcon({
       className: '',
@@ -1052,7 +1443,7 @@ function closeAddDestinationModal() {
 function createNewDestination() {
   const name = document.getElementById('new-dest-name').value.trim();
   const region = document.getElementById('new-dest-region').value;
-  const who = document.getElementById('new-dest-who').value;
+  const who = isSoloMode() ? 'solo' : document.getElementById('new-dest-who').value;
   const lat = parseFloat(document.getElementById('new-dest-lat').value) || 21.0285;
   const lng = parseFloat(document.getElementById('new-dest-lng').value) || 105.8542;
   const rawItems = document.getElementById('new-dest-items').value.trim();
@@ -1443,25 +1834,27 @@ function renderCommentList(dest) {
 async function postCommentToCloud(destId, comment) {
   if (!GOOGLE_SHEET_API_URL) return;
   try {
-    const body = new URLSearchParams();
-    body.append('action', 'comment');
-    body.append('id', comment.id);
-    body.append('destId', destId);
-    body.append('name', comment.name);
-    body.append('text', comment.text);
-    body.append('time', comment.time);
-    await fetch(GOOGLE_SHEET_API_URL, { method: 'POST', mode: 'no-cors', body });
+    await postCloudJson({
+      action: 'comment',
+      user: currentUserId,
+      id: comment.id,
+      destId,
+      name: comment.name,
+      text: comment.text,
+      time: comment.time
+    });
   } catch (e) { console.warn('Không gửi được bình luận lên cloud:', e.message); }
 }
 
 async function deleteCommentOnCloud(id) {
-  if (!GOOGLE_SHEET_API_URL) return;
+  if (!GOOGLE_SHEET_API_URL || !sessionPin) return;
   try {
-    const body = new URLSearchParams();
-    body.append('action', 'deleteComment');
-    body.append('pin', OWNER_PIN);
-    body.append('id', id);
-    await fetch(GOOGLE_SHEET_API_URL, { method: 'POST', mode: 'no-cors', body });
+    await postCloudJson({
+      action: 'deleteComment',
+      user: currentUserId,
+      pin: sessionPin,
+      id
+    });
   } catch (e) { console.warn('Không xóa được bình luận trên cloud:', e.message); }
 }
 
@@ -1480,7 +1873,7 @@ function addComment() {
   try { localStorage.setItem(COMMENT_NAME_KEY, name); } catch (e) { }
   document.getElementById('comment-text').value = '';
   renderCommentList(dest);
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations)); } catch (e) { }
+  saveLocalCache();
   updateAllUI();
   postCommentToCloud(dest.id, comment);
   showToast('Đã gửi bình luận!');
@@ -1521,7 +1914,7 @@ function toggleReaction(destId, emoji) {
   const i = arr.indexOf(me);
   if (i >= 0) arr.splice(i, 1); else arr.push(me);
 
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations)); } catch (e) { }
+  saveLocalCache();
   renderCards();
   renderBadges();
   postReactionToCloud(destId, emoji, me);
@@ -1530,12 +1923,13 @@ function toggleReaction(destId, emoji) {
 async function postReactionToCloud(destId, emoji, clientId) {
   if (!GOOGLE_SHEET_API_URL) return;
   try {
-    const body = new URLSearchParams();
-    body.append('action', 'react');
-    body.append('destId', destId);
-    body.append('emoji', emoji);
-    body.append('clientId', clientId);
-    await fetch(GOOGLE_SHEET_API_URL, { method: 'POST', mode: 'no-cors', body });
+    await postCloudJson({
+      action: 'react',
+      user: currentUserId,
+      destId,
+      emoji,
+      clientId
+    });
   } catch (e) { console.warn('Không gửi được reaction:', e.message); }
 }
 
@@ -1609,11 +2003,11 @@ const BADGES = [
   { id: 'central10', icon: '🌊', title: 'Duyên hải Trung', desc: '10 địa điểm miền Trung', stat: 'central', target: 10 },
   { id: 'south3', icon: '🌴', title: 'Phương Nam', desc: '3 địa điểm miền Nam', stat: 'south', target: 3 },
   { id: 'regions', icon: '🇻🇳', title: 'Xuyên Việt', desc: 'Đi đủ cả 3 miền Bắc - Trung - Nam', stat: 'regions', target: 3 },
-  // Cặp đôi
-  { id: 'both1', icon: '💕', title: 'Chuyến đi đôi', desc: '1 chuyến đi cùng nhau', stat: 'both', target: 1 },
-  { id: 'both5', icon: '💑', title: 'Đôi uyên ương', desc: '5 chuyến đi cùng nhau', stat: 'both', target: 5 },
-  { id: 'both10', icon: '💍', title: 'Bạn đồng hành', desc: '10 chuyến đi cùng nhau', stat: 'both', target: 10 },
-  { id: 'allwho', icon: '🤝', title: 'Đủ mọi mảnh ghép', desc: 'Có điểm của chồng, vợ & cả hai', stat: 'allWho', target: 3 },
+  // Cặp đôi (chỉ hiện ở nhật ký cặp đôi)
+  { id: 'both1', icon: '💕', title: 'Chuyến đi đôi', desc: '1 chuyến đi cùng nhau', stat: 'both', target: 1, coupleOnly: true },
+  { id: 'both5', icon: '💑', title: 'Đôi uyên ương', desc: '5 chuyến đi cùng nhau', stat: 'both', target: 5, coupleOnly: true },
+  { id: 'both10', icon: '💍', title: 'Bạn đồng hành', desc: '10 chuyến đi cùng nhau', stat: 'both', target: 10, coupleOnly: true },
+  { id: 'allwho', icon: '🤝', title: 'Đủ mọi mảnh ghép', desc: 'Có điểm của chồng, vợ & cả hai', stat: 'allWho', target: 3, coupleOnly: true },
   // Trải nghiệm & Ẩm thực
   { id: 'food5', icon: '🍜', title: 'Sành ăn', desc: 'Thử 5 món đặc sản', stat: 'food', target: 5 },
   { id: 'food10', icon: '🍲', title: 'Tín đồ ẩm thực', desc: 'Thử 10 món đặc sản', stat: 'food', target: 10 },
@@ -1631,12 +2025,17 @@ const BADGES = [
   { id: 'react10', icon: '❤️', title: 'Nhiều tim', desc: 'Nhận 10 reaction trên các thẻ', stat: 'reactions', target: 10 }
 ];
 
+function getActiveBadges() {
+  return isSoloMode() ? BADGES.filter(b => !b.coupleOnly) : BADGES;
+}
+
 function renderBadges() {
   const box = document.getElementById('badges-grid');
   if (!box) return;
   const st = getBadgeStats();
+  const activeBadges = getActiveBadges();
   const earnedNow = [];
-  const rows = BADGES.map(b => {
+  const rows = activeBadges.map(b => {
     const cur = st[b.stat] || 0;
     const done = cur >= b.target;
     if (done) earnedNow.push(b.id);
@@ -1657,7 +2056,7 @@ function renderBadges() {
     </div>`).join('')
     : '<span class="text-xs text-stone-400 py-1">Chưa có huy hiệu nào trong mục này.</span>';
 
-  const totalBadges = BADGES.length;
+  const totalBadges = activeBadges.length;
   const earnedCount = earnedNow.length;
   const lockedCount = totalBadges - earnedCount;
   const countEl = document.getElementById('badges-count');
@@ -1670,13 +2069,14 @@ function renderBadges() {
   if (cl) cl.textContent = lockedCount;
 
   try {
-    const raw = localStorage.getItem(BADGE_SEEN_KEY);
+    const seenKey = `${BADGE_SEEN_KEY}_${currentUserId}`;
+    const raw = localStorage.getItem(seenKey);
     if (raw) {
       const seen = JSON.parse(raw);
-      const fresh = BADGES.filter(b => earnedNow.includes(b.id) && !seen.includes(b.id));
+      const fresh = activeBadges.filter(b => earnedNow.includes(b.id) && !seen.includes(b.id));
       if (fresh.length) showToast(`🎉 Huy hiệu mới: ${fresh.map(b => b.icon + ' ' + b.title).join(', ')}`);
     }
-    localStorage.setItem(BADGE_SEEN_KEY, JSON.stringify(earnedNow));
+    localStorage.setItem(seenKey, JSON.stringify(earnedNow));
   } catch (e) { }
 }
 
@@ -1741,17 +2141,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   initProvincePresets();
   initDestSuggestions();
 
+  // Đọc ?u=<userId> từ URL nếu có
+  const urlUid = new URLSearchParams(window.location.search).get('u');
+  if (urlUid && urlUid.trim()) {
+    currentUserId = urlUid.trim();
+    if (currentUserId !== DEFAULT_USER_ID) {
+      currentUser = { id: currentUserId, name: currentUserId, mode: 'solo', subtitle: '' };
+    }
+  }
+
   // 1. Nạp dữ liệu cục bộ & khởi tạo giao diện ngay lập tức
-  destinations = loadLocalData();
+  destinations = loadLocalData(currentUserId);
+  applyUserProfileUI();
   initMap();
   updateAllUI();
 
-  // 2. Tự động đồng bộ bản mới nhất từ Google Sheets (hoặc khởi tạo nếu Sheet đang trống)
-  const cloudStatus = await loadFromCloud();
+  // 2. Đồng bộ danh sách user + dữ liệu mới nhất từ Google Sheets
+  const cloudStatus = await loadFromCloud(currentUserId);
   if (cloudStatus === 'loaded') {
     updateAllUI();
-  } else if (cloudStatus === 'empty') {
-    await syncToCloud(false);
   }
 });
 
@@ -1763,8 +2171,14 @@ const ALL_MODALS = [
   ['pin-modal', closePinModal],
   ['export-modal', closeExportModal],
   ['reset-modal', closeResetModal],
-  ['passport-modal', () => typeof closePassportModal === 'function' && closePassportModal()]
+  ['passport-modal', () => typeof closePassportModal === 'function' && closePassportModal()],
+  ['create-user-modal', closeCreateUserModal]
 ];
+
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('user-switcher-wrap');
+  if (wrap && !wrap.contains(e.target)) closeUserSwitcher();
+});
 
 document.addEventListener('mousedown', e => {
   for (const [id, closeFn] of ALL_MODALS) {

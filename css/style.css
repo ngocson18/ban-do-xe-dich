@@ -38,6 +38,10 @@ body {
   background: linear-gradient(135deg, #0284C7, #38BDF8);
 }
 
+.pin-solo {
+  background: linear-gradient(135deg, #EA580C, #F97316);
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

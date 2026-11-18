@@ -6,6 +6,10 @@ let currentPassportLayout = 'boarding'; // 'boarding' (1200x630) | 'story' (1080
 function openPassportModal() {
   const modal = document.getElementById('passport-modal');
   if (!modal) return;
+  const ti = document.getElementById('passport-title-input');
+  const mi = document.getElementById('passport-motto-input');
+  if (ti && typeof currentUser !== 'undefined' && currentUser.name) ti.value = currentUser.name;
+  if (mi && typeof currentUser !== 'undefined') mi.value = currentUser.subtitle || 'Cùng nhau vẽ kín bản đồ Việt Nam';
   modal.classList.remove('hidden');
   modal.classList.add('flex');
   renderPassportCanvas();
@@ -129,19 +133,21 @@ function getPassportSummary() {
 
   let totalItems = 0, checkedItems = 0;
   destinations.forEach(d => (d.items || []).forEach(i => { totalItems++; if (i.checked) checkedItems++; }));
-  const earnedBadges = BADGES.filter(b => (st[b.stat] || 0) >= b.target);
+  const activeBadges = typeof getActiveBadges === 'function' ? getActiveBadges() : BADGES;
+  const earnedBadges = activeBadges.filter(b => (st[b.stat] || 0) >= b.target);
   const pct = totalProvs ? Math.round((st.provinces / totalProvs) * 100) : 0;
+  const solo = typeof isSoloMode === 'function' && isSoloMode();
 
   const titleInput = document.getElementById('passport-title-input');
   const mottoInput = document.getElementById('passport-motto-input');
   const passenger = (titleInput && titleInput.value.trim()) || 'Ngọc Sơn & Huyền Thương';
   const motto = (mottoInput && mottoInput.value.trim()) || 'Cùng nhau vẽ kín bản đồ Việt Nam';
 
-  return { st, visitedMap, totalProvs, provCounts, totalItems, checkedItems, earnedBadges, pct, passenger, motto };
+  return { st, visitedMap, totalProvs, provCounts, totalItems, checkedItems, earnedBadges, totalBadges: activeBadges.length, pct, passenger, motto, solo };
 }
 
 function drawBoardingPass(ctx, W, H, data) {
-  const { st, visitedMap, totalProvs, provCounts, totalItems, checkedItems, earnedBadges, pct, passenger, motto } = data;
+  const { st, visitedMap, totalProvs, provCounts, totalItems, checkedItems, earnedBadges, totalBadges, pct, passenger, motto, solo } = data;
   const splitX = 820;
 
   // Nền ngoài tinh tế
@@ -252,7 +258,7 @@ function drawBoardingPass(ctx, W, H, data) {
   const stats = [
     { label: 'ĐIỂM ĐẾN', value: `${st.places}`, sub: 'địa danh', color: '#1C1917' },
     { label: 'TRẢI NGHIỆM', value: `${checkedItems}/${totalItems}`, sub: 'đã check-in', color: '#D97706' },
-    { label: 'HUY HIỆU', value: `${earnedBadges.length}/${BADGES.length}`, sub: 'thành tích', color: '#059669' },
+    { label: 'HUY HIỆU', value: `${earnedBadges.length}/${totalBadges}`, sub: 'thành tích', color: '#059669' },
     { label: 'ĐẶC SẢN', value: `${st.food}`, sub: 'món đã thử', color: '#E11D48' }
   ];
   const cardW = (splitX - lx - 36 - 36) / 4;
@@ -277,12 +283,19 @@ function drawBoardingPass(ctx, W, H, data) {
 
   // Phân bổ 3 màu Chồng / Vợ / Cả hai
   const whoY = ty + 410;
-  const pills = [
-    { dot: '#F43F5E', text: `Cả hai: ${provCounts.both} tỉnh (${st.both} điểm)` },
-    { dot: '#38BDF8', text: `Chồng: ${provCounts.husband} tỉnh (${st.husband} điểm)` },
-    { dot: '#C084FC', text: `Vợ: ${provCounts.wife} tỉnh (${st.wife} điểm)` }
-  ];
-  if (provCounts.mixed > 0) pills.push({ dot: '#FBBF24', text: `Đi riêng: ${provCounts.mixed} tỉnh` });
+  const pills = solo ? [
+    { dot: '#F97316', text: `Miền Bắc: ${st.north} điểm` },
+    { dot: '#FB923C', text: `Miền Trung: ${st.central} điểm` },
+    { dot: '#FDBA74', text: `Miền Nam: ${st.south} điểm` }
+  ] : (() => {
+    const L = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cả 2', husbandMap: 'Chồng', wifeMap: 'Vợ' };
+    return [
+      { dot: '#F43F5E', text: `${L.bothMap}: ${provCounts.both} tỉnh (${st.both} điểm)` },
+      { dot: '#38BDF8', text: `${L.husbandMap}: ${provCounts.husband} tỉnh (${st.husband} điểm)` },
+      { dot: '#C084FC', text: `${L.wifeMap}: ${provCounts.wife} tỉnh (${st.wife} điểm)` }
+    ];
+  })();
+  if (!solo && provCounts.mixed > 0) pills.push({ dot: '#FBBF24', text: `Đi riêng: ${provCounts.mixed} tỉnh` });
   let px = lx;
   pills.forEach(p => {
     ctx.font = '600 12px Inter, sans-serif';
@@ -337,7 +350,8 @@ function drawBoardingPass(ctx, W, H, data) {
   ctx.fillStyle = '#78716C';
   ctx.font = '600 11px Inter, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('❤️ Cả hai   💙 Chồng   🌸 Vợ', splitX + (tx + tw - splitX) / 2, ty + th - 22);
+  const L2 = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cả 2', husbandMap: 'Chồng', wifeMap: 'Vợ' };
+  ctx.fillText(solo ? `📍 Đã đi ${st.provinces}/${totalProvs} tỉnh thành` : `❤️ ${L2.bothMap}   💙 ${L2.husbandMap}   🌸 ${L2.wifeMap}`, splitX + (tx + tw - splitX) / 2, ty + th - 22);
   ctx.textAlign = 'left';
 
   ctx.restore();
@@ -353,7 +367,7 @@ function drawBoardingPass(ctx, W, H, data) {
 }
 
 function drawStoryPassport(ctx, W, H, data) {
-  const { st, visitedMap, totalProvs, provCounts, totalItems, checkedItems, earnedBadges, pct, passenger, motto } = data;
+  const { st, visitedMap, totalProvs, provCounts, totalItems, checkedItems, earnedBadges, totalBadges, pct, passenger, motto, solo } = data;
 
   // Nền hộ chiếu tối sang trọng ánh vàng đồng
   const bg = ctx.createLinearGradient(0, 0, W, H);
@@ -412,14 +426,15 @@ function drawStoryPassport(ctx, W, H, data) {
   // Chú thích 3 màu dưới bản đồ
   ctx.fillStyle = '#E7E5E4';
   ctx.font = '600 24px Inter, sans-serif';
-  ctx.fillText(`❤️ Cả hai: ${provCounts.both}    💙 Chồng: ${provCounts.husband}    🌸 Vợ: ${provCounts.wife}`, W / 2, 1135);
+  const L3 = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cả 2', husbandMap: 'Chồng', wifeMap: 'Vợ' };
+  ctx.fillText(solo ? `🏔️ Bắc: ${st.north}    🏖️ Trung: ${st.central}    🌴 Nam: ${st.south}` : `❤️ ${L3.bothMap}: ${provCounts.both}    💙 ${L3.husbandMap}: ${provCounts.husband}    🌸 ${L3.wifeMap}: ${provCounts.wife}`, W / 2, 1135);
 
   // 4 thẻ thống kê 2x2
   const stats = [
     { label: 'TỈNH THÀNH ĐÃ PHỦ', val: `${st.provinces}/${totalProvs}`, color: '#FCD34D' },
     { label: 'ĐỊA DANH ĐÃ ĐI', val: `${st.places}`, color: '#FFFFFF' },
     { label: 'TRẢI NGHIỆM', val: `${checkedItems}/${totalItems}`, color: '#34D399' },
-    { label: 'HUY HIỆU THÀNH TÍCH', val: `${earnedBadges.length}/${BADGES.length}`, color: '#FB7185' }
+    { label: 'HUY HIỆU THÀNH TÍCH', val: `${earnedBadges.length}/${totalBadges}`, color: '#FB7185' }
   ];
   const sw = (W - 168 - 28) / 2, sh = 148;
   stats.forEach((s, idx) => {
