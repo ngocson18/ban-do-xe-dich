@@ -306,6 +306,16 @@ async function loadFromCloud() {
     }
     const data = JSON.parse(text);
     if (Array.isArray(data) && data.length > 0) {
+      // Giữ lại bình luận lưu trên máy mà cloud chưa có (tránh bị ghi đè khi tải lại trang)
+      const localById = {};
+      destinations.forEach(d => { localById[d.id] = d; });
+      data.forEach(d => {
+        const local = localById[d.id];
+        if (!local || !Array.isArray(local.comments) || !local.comments.length) return;
+        const have = new Set((d.comments || []).map(c => c.id));
+        const extra = local.comments.filter(c => !have.has(c.id));
+        if (extra.length) d.comments = (d.comments || []).concat(extra).sort((a, b) => new Date(a.time) - new Date(b.time));
+      });
       destinations = data;
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations));
@@ -336,7 +346,7 @@ async function syncToCloud(showNotification = false) {
     setTimeout(async () => {
       const status = await loadFromCloud();
       if (status === 'loaded') {
-        setSyncStatus('ok', 'Đã đồng bộ Google Sheets');
+        setSyncStatus('ok', 'Đã đồng bộ');
         if (showNotification) showToast('Đã lưu và xác nhận dữ liệu trên Google Sheets!');
       } else {
         setSyncStatus('error', 'Kiểm tra quyền Deploy');
@@ -518,7 +528,7 @@ function renderCards() {
       if (!matchName && !matchItem) return false;
     }
     return true;
-  });
+  }).sort((a, b) => (b.lat || 0) - (a.lat || 0)); // Sắp xếp từ Bắc xuống Nam (vĩ độ giảm dần)
 
   if (filtered.length === 0) {
     grid.innerHTML = `
@@ -565,6 +575,7 @@ function renderCards() {
                                 </div>
                             </div>
 
+${isOwnerMode && photos.length > 0 ? `
                             <button onclick="openPhotoModal('${dest.id}')"
                                 onmouseenter="showHoverPhoto(event, '${dest.id}')"
                                 onmouseleave="hideHoverPhoto()"
@@ -572,6 +583,14 @@ function renderCards() {
       }" title="Xem / Thêm ảnh kỷ niệm">
                                 <i class="fa-regular fa-images"></i>
                                 <span>${photos.length > 0 ? photos.length : '+Ảnh'}</span>
+                            </button>
+`: ''}
+                            <button onclick="openCommentModal('${dest.id}')"
+                                onmouseenter="showHoverComments(event, '${dest.id}')"
+                                onmouseleave="hideHoverComments()"
+                                class="px-2.5 py-1.5 rounded-xl text-[11px] font-medium border transition flex items-center gap-1 ${(dest.comments || []).length > 0 ? 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100' : 'bg-stone-50 text-stone-500 border-stone-200 hover:bg-stone-100'}">
+                                <i class="fa-regular fa-comment-dots"></i>
+                                <span>${(dest.comments || []).length > 0 ? dest.comments.length : 'Bình luận'}</span>
                             </button>
                         </div>
 
@@ -757,6 +776,95 @@ function initProvincePresets() {
   });
 }
 
+// ---- Gợi ý địa điểm khi gõ (preset nội bộ + OpenStreetMap Nominatim) ----
+let suggestTimer = null;
+let suggestAbort = null;
+
+function regionByLat(lat) {
+  if (lat >= 20) return 'Miền Bắc';
+  if (lat >= 11.5) return 'Miền Trung';
+  return 'Miền Nam';
+}
+
+function removeAccents(str) {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+}
+
+function hideSuggestions() {
+  const ul = document.getElementById('dest-suggestions');
+  if (ul) { ul.classList.add('hidden'); ul.innerHTML = ''; }
+}
+
+function renderSuggestions(list, loadingText) {
+  const ul = document.getElementById('dest-suggestions');
+  if (!ul) return;
+  if (!list.length) {
+    ul.innerHTML = loadingText ? `<li class="px-3 py-2 text-stone-400">${loadingText}</li>` : '';
+    ul.classList.toggle('hidden', !loadingText);
+    return;
+  }
+  ul.innerHTML = list.map((it, i) => `
+    <li data-i="${i}" class="px-3 py-2 cursor-pointer hover:bg-terracotta-50 border-b border-stone-100 last:border-0">
+      <div class="font-semibold text-stone-700">${it.icon || '📍'} ${it.name}</div>
+      <div class="text-[11px] text-stone-400 truncate">${it.sub || ''}</div>
+    </li>`).join('');
+  ul.classList.remove('hidden');
+  ul._items = list;
+}
+
+function pickSuggestion(it) {
+  document.getElementById('new-dest-name').value = it.name;
+  document.getElementById('new-dest-region').value = it.region;
+  document.getElementById('new-dest-lat').value = Number(it.lat).toFixed(4);
+  document.getElementById('new-dest-lng').value = Number(it.lng).toFixed(4);
+  hideSuggestions();
+}
+
+function onDestNameInput() {
+  const q = document.getElementById('new-dest-name').value.trim();
+  clearTimeout(suggestTimer);
+  if (suggestAbort) suggestAbort.abort();
+  if (q.length < 2) { hideSuggestions(); return; }
+
+  const qn = removeAccents(q);
+  const local = PROVINCE_PRESETS
+    .filter(p => removeAccents(p.name).includes(qn))
+    .slice(0, 4)
+    .map(p => ({ name: p.name, sub: `${p.region} · gợi ý có sẵn`, region: p.region, lat: p.lat, lng: p.lng, icon: '⭐' }));
+  renderSuggestions(local, local.length ? '' : 'Đang tìm...');
+
+  suggestTimer = setTimeout(async () => {
+    suggestAbort = new AbortController();
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=vn&accept-language=vi&q=' + encodeURIComponent(q);
+      const res = await fetch(url, { signal: suggestAbort.signal });
+      const data = await res.json();
+      const remote = data.map(r => {
+        const parts = r.display_name.split(', ');
+        const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+        return { name: r.name || parts[0], sub: parts.slice(1, 4).join(', '), region: regionByLat(lat), lat, lng, icon: '📍' };
+      }).filter(r => !local.some(l => removeAccents(l.name) === removeAccents(r.name)));
+      const all = local.concat(remote);
+      renderSuggestions(all, all.length ? '' : 'Không tìm thấy gợi ý');
+    } catch (e) {
+      if (e.name !== 'AbortError' && !local.length) renderSuggestions([], 'Không tải được gợi ý (kiểm tra mạng)');
+    }
+  }, 500);
+}
+
+function initDestSuggestions() {
+  const input = document.getElementById('new-dest-name');
+  const ul = document.getElementById('dest-suggestions');
+  if (!input || !ul) return;
+  input.addEventListener('input', onDestNameInput);
+  ul.addEventListener('mousedown', e => {
+    const li = e.target.closest('li[data-i]');
+    if (li && ul._items) { e.preventDefault(); pickSuggestion(ul._items[Number(li.dataset.i)]); }
+  });
+  input.addEventListener('blur', () => setTimeout(hideSuggestions, 150));
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') hideSuggestions(); });
+}
+
 function applyProvincePreset(idx) {
   if (idx === '') return;
   const p = PROVINCE_PRESETS[Number(idx)];
@@ -927,6 +1035,195 @@ function removePhotoFromDestination(idx) {
 }
 
 // ==========================================
+// 7b. BÌNH LUẬN CỦA KHÁCH (bong bóng truyện tranh)
+// ==========================================
+let currentCommentDestId = null;
+const COMMENT_NAME_KEY = 'nhat-ky-comment-name';
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function formatCommentTime(ts) {
+  const d = new Date(ts);
+  if (isNaN(d)) return '';
+  return d.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+}
+
+function commentBubbleHtml(c, withDelete, idx) {
+  return `
+    <div class="comic-bubble">
+      <div class="comic-bubble-name">${escapeHtml(c.name)}</div>
+      <div class="comic-bubble-text">${escapeHtml(c.text)}</div>
+      <div class="comic-bubble-time">${formatCommentTime(c.time)}${withDelete ? ` <button onclick="deleteComment(${idx})" class="ml-2 px-2 py-0.5 rounded-full bg-red-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 transition" title="Xóa bình luận"><i class="fa-solid fa-trash-can"></i> Xóa</button>` : ''}</div>
+    </div>`;
+}
+
+function showHoverComments(event, destId) {
+  const dest = destinations.find(d => d.id === destId);
+  const list = (dest && dest.comments) || [];
+  if (!list.length) return;
+  const btn = event.currentTarget;
+  const box = document.getElementById('hover-comments');
+  const MAX = 6;
+  const shown = list.slice().sort((a, b) => new Date(a.time) - new Date(b.time)).slice(-MAX);
+  const more = list.length - shown.length;
+
+  box.innerHTML = '<svg class="comic-tails" width="100%" height="100%" style="position:absolute;left:0;top:0;overflow:visible"></svg>' +
+    shown.map(c => `<div class="comic-pos" style="position:absolute;width:190px;visibility:hidden">${commentBubbleHtml(c, false)}</div>`).join('') +
+    (more > 0 ? `<div class="comic-pos" style="position:absolute;visibility:hidden"><div class="comic-more">+${more} bình luận cũ hơn</div></div>` : '');
+  box.classList.remove('hidden');
+
+  // Các bong bóng rải quanh THẺ địa điểm, đuôi trỏ vào thẻ
+  const card = document.getElementById('card-' + destId) || btn;
+  const cr = card.getBoundingClientRect();
+  const cc = { x: cr.left + cr.width / 2, y: cr.top + cr.height / 2 };
+  const placed = [{ l: cr.left, t: cr.top, r: cr.right, b: cr.bottom }];
+  const vw = window.innerWidth, vh = window.innerHeight, M = 8, PAD = 10;
+  const ANGLES = [-90, -20, 200, 30, 150, 90, -55, -125, 0, 180, 60, 120];
+  const GAPS = [14, 40, 80, 130];
+  const hit = (a, b) => !(a.r + PAD <= b.l || a.l >= b.r + PAD || a.b + PAD <= b.t || a.t >= b.b + PAD);
+
+  const els = Array.from(box.querySelectorAll('.comic-pos'));
+  let polys = '';
+  let order = 0;
+  els.forEach((el, i) => {
+    const w = el.offsetWidth, h = el.offsetHeight;
+    let best = null;
+    outer: for (const gap of GAPS) {
+      for (let k = 0; k < ANGLES.length; k++) {
+        const ang = ANGLES[(i + k) % ANGLES.length] * Math.PI / 180;
+        const dx = Math.cos(ang), dy = Math.sin(ang);
+        // đặt bong bóng sát viền thẻ theo hướng ang
+        const cx = cc.x + dx * (cr.width / 2 + w / 2 + gap);
+        const cy = cc.y + dy * (cr.height / 2 + h / 2 + gap);
+        const rect = { l: cx - w / 2, t: cy - h / 2, r: cx + w / 2, b: cy + h / 2 };
+        if (rect.l < M || rect.t < M || rect.r > vw - M || rect.b > vh - M) continue;
+        if (placed.some(p => hit(rect, p))) continue;
+        best = rect; break outer;
+      }
+    }
+    if (!best) { // hết chỗ bên ngoài: đặt đè lên thẻ nhưng không đè bong bóng khác
+      const cands = [];
+      for (let yy = M; yy <= vh - h - M; yy += 24) for (let xx = M; xx <= vw - w - M; xx += 24) {
+        const rc = { l: xx, t: yy, r: xx + w, b: yy + h };
+        if (!placed.slice(1).some(p => hit(rc, p))) cands.push({ rc, d: Math.hypot(xx + w / 2 - cc.x, yy + h / 2 - cc.y) });
+      }
+      cands.sort((p, q) => p.d - q.d);
+      best = cands.length ? cands[0].rc : { l: M, t: M, r: M + w, b: M + h };
+    }
+    const rect = best;
+    placed.push(rect);
+    el.style.left = `${rect.l}px`; el.style.top = `${rect.t}px`; el.style.visibility = 'visible';
+    // Hiệu ứng xuất hiện lần lượt theo thời gian bình luận (cũ nhất trước)
+    const hasBubble = !!el.querySelector('.comic-bubble');
+    const delay = hasBubble ? (++order) * 300 : 0;
+    el.classList.add('comic-pop');
+    el.style.animationDelay = `${delay}ms`;
+
+    if (el.querySelector('.comic-bubble')) {
+      const bcx = (rect.l + rect.r) / 2, bcy = (rect.t + rect.b) / 2;
+      // Điểm đích: điểm gần nhất nằm trong thẻ
+      const tx = Math.max(cr.left + 6, Math.min(bcx, cr.right - 6));
+      const ty = Math.max(cr.top + 6, Math.min(bcy, cr.bottom - 6));
+      const bx = Math.max(rect.l + 16, Math.min(tx, rect.r - 16));
+      const by = Math.max(rect.t + 16, Math.min(ty, rect.b - 16));
+      let vx = tx - bx, vy = ty - by;
+      const len = Math.hypot(vx, vy);
+      if (len < 4) return; // bong bóng đã nằm trên thẻ, không cần đuôi
+      vx /= len; vy /= len;
+      const px = -vy * 9, py = vx * 9;
+      polys += `<polygon class="comic-tail-fade" style="animation-delay:${delay}ms" points="${bx + px},${by + py} ${bx - px},${by - py} ${tx},${ty}" fill="#fff" stroke="#292524" stroke-width="2" stroke-linejoin="round"/>`;
+    }
+  });
+  box.querySelector('svg').innerHTML = polys;
+}
+
+function hideHoverComments() {
+  const box = document.getElementById('hover-comments');
+  if (box) box.classList.add('hidden');
+}
+
+function openCommentModal(destId) {
+  const dest = destinations.find(d => d.id === destId);
+  if (!dest) return;
+  hideHoverComments();
+  currentCommentDestId = destId;
+  document.getElementById('comment-modal-title').textContent = `Bình luận — ${dest.name}`;
+  document.getElementById('comment-name').value = localStorage.getItem(COMMENT_NAME_KEY) || '';
+  document.getElementById('comment-text').value = '';
+  renderCommentList(dest);
+  const modal = document.getElementById('comment-modal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function closeCommentModal() {
+  const modal = document.getElementById('comment-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  currentCommentDestId = null;
+}
+
+function renderCommentList(dest) {
+  const box = document.getElementById('comment-list');
+  const list = dest.comments || [];
+  if (!list.length) {
+    box.innerHTML = '<p class="text-xs text-stone-400 text-center py-6">Chưa có bình luận nào. Hãy là người đầu tiên!</p>';
+    return;
+  }
+  box.innerHTML = list.map((c, i) => commentBubbleHtml(c, isOwnerMode, i)).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function postCommentToCloud(destId, comment) {
+  if (!GOOGLE_SHEET_API_URL) return;
+  try {
+    const body = new URLSearchParams();
+    body.append('action', 'comment');
+    body.append('destId', destId);
+    body.append('name', comment.name);
+    body.append('text', comment.text);
+    body.append('time', comment.time);
+    await fetch(GOOGLE_SHEET_API_URL, { method: 'POST', mode: 'no-cors', body });
+  } catch (e) { console.warn('Không gửi được bình luận lên cloud:', e.message); }
+}
+
+function addComment() {
+  if (!currentCommentDestId) return;
+  const dest = destinations.find(d => d.id === currentCommentDestId);
+  if (!dest) return;
+  const name = document.getElementById('comment-name').value.trim().slice(0, 40);
+  const text = document.getElementById('comment-text').value.trim().slice(0, 500);
+  if (!name) { showToast('Vui lòng nhập tên của bạn!'); document.getElementById('comment-name').focus(); return; }
+  if (!text) { showToast('Vui lòng nhập nội dung bình luận!'); return; }
+
+  const comment = { id: 'c-' + Date.now(), name, text, time: new Date().toISOString() };
+  if (!dest.comments) dest.comments = [];
+  dest.comments.push(comment);
+  try { localStorage.setItem(COMMENT_NAME_KEY, name); } catch (e) { }
+  document.getElementById('comment-text').value = '';
+  renderCommentList(dest);
+  if (isOwnerMode) saveData(true);
+  else {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations)); } catch (e) { }
+    updateAllUI();
+    postCommentToCloud(dest.id, comment);
+  }
+  showToast('Đã gửi bình luận!');
+}
+
+function deleteComment(idx) {
+  if (!isOwnerMode || !currentCommentDestId) return;
+  const dest = destinations.find(d => d.id === currentCommentDestId);
+  if (!dest || !dest.comments) return;
+  if (!confirm(`Xóa bình luận của "${dest.comments[idx].name}"?`)) return;
+  dest.comments.splice(idx, 1);
+  renderCommentList(dest);
+  saveData(true);
+}
+
+// ==========================================
 // 8. XUẤT CODE DỰ PHÒNG & KHÔI PHỤC GỐC
 // ==========================================
 function openExportModal() {
@@ -985,6 +1282,7 @@ function showToast(msg) {
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
   initProvincePresets();
+  initDestSuggestions();
 
   // 1. Nạp dữ liệu cục bộ & khởi tạo giao diện ngay lập tức
   destinations = loadLocalData();

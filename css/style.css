@@ -46,3 +46,32 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Bong bóng bình luận kiểu truyện tranh */
+.comic-bubble {
+  position: relative;
+  background: #fff;
+  border: 2px solid #292524;
+  border-radius: 18px;
+  padding: 8px 12px;
+  box-shadow: 3px 3px 0 #292524;
+  word-break: break-word;
+  z-index: 1;
+}
+.comic-bubble-name { font-weight: 800; font-size: 11px; color: #c2410c; }
+.comic-bubble-text { font-size: 12px; color: #292524; margin-top: 2px; white-space: pre-wrap; }
+.comic-bubble-time { font-size: 10px; color: #a8a29e; margin-top: 4px; pointer-events: auto; }
+.comic-more { font-size: 11px; font-weight: 600; color: #57534e; text-align: center; background: #fef3c7; border-radius: 9999px; padding: 2px 8px; }
+#comment-list .comic-bubble { margin-bottom: 8px; }
+.comic-tails { z-index: 0; pointer-events: none; }
+#hover-comments .comic-pos { z-index: 1; }
+.comic-more { position: relative; z-index: 1; }
+
+@keyframes comicPop {
+  0%   { opacity: 0; transform: scale(0.3) rotate(-6deg); }
+  60%  { opacity: 1; transform: scale(1.08) rotate(1deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+@keyframes comicFade { from { opacity: 0; } to { opacity: 1; } }
+.comic-pop { opacity: 0; animation: comicPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.comic-tail-fade { opacity: 0; animation: comicFade 0.25s ease-out both; }
