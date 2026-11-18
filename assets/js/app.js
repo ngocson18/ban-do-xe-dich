@@ -277,9 +277,9 @@ function isSoloMode() {
 function getWhoLabels() {
   if (currentUserId === DEFAULT_USER_ID) {
     return {
-      both: 'Cả hai cùng đi', bothShort: 'Cả hai', bothMap: 'Cả 2',
-      husband: 'Chồng đã đi', husbandShort: 'Chồng đi', husbandMap: 'Chồng',
-      wife: 'Vợ đã đi', wifeShort: 'Vợ đi', wifeMap: 'Vợ'
+      both: 'Đi cùng nhau', bothShort: 'Đi cùng nhau', bothMap: 'Cùng đi',
+    husband: 'Bạn trai đã đi', husbandShort: 'Bạn trai', husbandMap: 'Bạn trai',
+    wife: 'Bạn gái đã đi', wifeShort: 'Bạn gái', wifeMap: 'Bạn gái'
     };
   }
   return {
@@ -1111,9 +1111,9 @@ function findProvince(lat, lng) {
 }
 
 const PROVINCE_COLORS = {
-  both:    { stroke: '#E11D48', fill: '#F43F5E', opacity: 0.46, label: '❤️ Cả hai cùng đi', icon: '❤️' },
-  husband: { stroke: '#0284C7', fill: '#38BDF8', opacity: 0.46, label: '💙 Chồng đã đi',    icon: '💙' },
-  wife:    { stroke: '#9333EA', fill: '#C084FC', opacity: 0.46, label: '🌸 Vợ đã đi',       icon: '🌸' },
+  both:    { stroke: '#E11D48', fill: '#F43F5E', opacity: 0.46, label: '❤️ Đi cùng nhau',   icon: '❤️' },
+  husband: { stroke: '#0284C7', fill: '#38BDF8', opacity: 0.46, label: '💙 Bạn trai đã đi', icon: '💙' },
+  wife:    { stroke: '#9333EA', fill: '#C084FC', opacity: 0.46, label: '🌸 Bạn gái đã đi',  icon: '🌸' },
   mixed:   { stroke: '#D97706', fill: '#FBBF24', opacity: 0.46, label: '✨ Cả 2 đi riêng',  icon: '✨' },
   solo:    { stroke: '#C2410C', fill: '#F97316', opacity: 0.48, label: '📍 Đã ghé thăm',    icon: '📍' }
 };
@@ -2007,7 +2007,7 @@ const BADGES = [
   { id: 'both1', icon: '💕', title: 'Chuyến đi đôi', desc: '1 chuyến đi cùng nhau', stat: 'both', target: 1, coupleOnly: true },
   { id: 'both5', icon: '💑', title: 'Đôi uyên ương', desc: '5 chuyến đi cùng nhau', stat: 'both', target: 5, coupleOnly: true },
   { id: 'both10', icon: '💍', title: 'Bạn đồng hành', desc: '10 chuyến đi cùng nhau', stat: 'both', target: 10, coupleOnly: true },
-  { id: 'allwho', icon: '🤝', title: 'Đủ mọi mảnh ghép', desc: 'Có điểm của chồng, vợ & cả hai', stat: 'allWho', target: 3, coupleOnly: true },
+  { id: 'allwho', icon: '🤝', title: 'Đủ mọi mảnh ghép', desc: 'Có điểm của bạn trai, bạn gái & đi cùng nhau', stat: 'allWho', target: 3, coupleOnly: true },
   // Trải nghiệm & Ẩm thực
   { id: 'food5', icon: '🍜', title: 'Sành ăn', desc: 'Thử 5 món đặc sản', stat: 'food', target: 5 },
   { id: 'food10', icon: '🍲', title: 'Tín đồ ẩm thực', desc: 'Thử 10 món đặc sản', stat: 'food', target: 10 },

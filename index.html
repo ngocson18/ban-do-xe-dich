@@ -33,9 +33,9 @@
             Nhật Ký Xê Dịch <span id="header-owner-name" class="text-terracotta-600">Ngọc Sơn &amp; Huyền Thương</span>
           </h1>
           <div id="header-couple-legend" class="flex items-center gap-3 text-xs text-stone-500 mt-0.5">
-            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span> <span id="lbl-hdr-both">Cả hai cùng đi</span></span>
-            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500"></span> <span id="lbl-hdr-wife">Vợ đã đi</span></span>
-            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-sky-500"></span> <span id="lbl-hdr-husband">Chồng đã đi</span></span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span> <span id="lbl-hdr-both">Đi cùng nhau</span></span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-purple-500"></span> <span id="lbl-hdr-wife">Bạn gái đã đi</span></span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-sky-500"></span> <span id="lbl-hdr-husband">Bạn trai đã đi</span></span>
           </div>
           <p id="header-solo-subtitle" class="hidden text-xs text-stone-500 mt-0.5">Nhật ký xê dịch cá nhân</p>
         </div>
@@ -173,15 +173,15 @@
           <!-- Phân bổ người đi (Cặp đôi) -->
           <div id="couple-breakdown-box" class="mt-5 space-y-2.5 bg-white/5 border border-white/10 rounded-2xl p-4">
             <div class="flex items-center justify-between text-xs">
-              <span class="text-rose-300 font-medium"><i class="fa-solid fa-heart mr-1.5"></i><span id="lbl-stat-both">Cả hai cùng đi</span></span>
+              <span class="text-rose-300 font-medium"><i class="fa-solid fa-heart mr-1.5"></i><span id="lbl-stat-both">Đi cùng nhau</span></span>
               <span id="stat-both-count" class="font-bold text-white">9 điểm</span>
             </div>
             <div class="flex items-center justify-between text-xs">
-              <span class="text-sky-300 font-medium"><i class="fa-solid fa-mars mr-1.5"></i><span id="lbl-stat-husband">Chồng đã đi</span></span>
+              <span class="text-sky-300 font-medium"><i class="fa-solid fa-mars mr-1.5"></i><span id="lbl-stat-husband">Bạn trai đã đi</span></span>
               <span id="stat-husband-count" class="font-bold text-white">9 điểm</span>
             </div>
             <div class="flex items-center justify-between text-xs">
-              <span class="text-purple-300 font-medium"><i class="fa-solid fa-venus mr-1.5"></i><span id="lbl-stat-wife">Vợ đã đi</span></span>
+              <span class="text-purple-300 font-medium"><i class="fa-solid fa-venus mr-1.5"></i><span id="lbl-stat-wife">Bạn gái đã đi</span></span>
               <span id="stat-wife-count" class="font-bold text-white">4 điểm</span>
             </div>
           </div>
@@ -254,15 +254,15 @@
           </button>
           <button onclick="setFilter('both')" data-filter="both"
             class="filter-btn couple-only-ui px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
-            ❤️ <span id="lbl-flt-both">Cả hai</span> (<span id="count-both">9</span>)
+            ❤️ <span id="lbl-flt-both">Đi cùng nhau</span> (<span id="count-both">9</span>)
           </button>
           <button onclick="setFilter('husband')" data-filter="husband"
             class="filter-btn couple-only-ui px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
-            💙 <span id="lbl-flt-husband">Chồng đi</span> (<span id="count-husband">9</span>)
+            💙 <span id="lbl-flt-husband">Bạn trai</span> (<span id="count-husband">9</span>)
           </button>
           <button onclick="setFilter('wife')" data-filter="wife"
             class="filter-btn couple-only-ui px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
-            🌸 <span id="lbl-flt-wife">Vợ đi</span> (<span id="count-wife">4</span>)
+            🌸 <span id="lbl-flt-wife">Bạn gái</span> (<span id="count-wife">4</span>)
           </button>
           <button onclick="setFilter('incomplete')" data-filter="incomplete"
             class="filter-btn px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 text-stone-600 hover:bg-stone-200 whitespace-nowrap transition">
@@ -436,9 +436,9 @@
           <div id="new-dest-who-wrap">
             <label class="block font-semibold text-stone-700 mb-1">Ai đã đi?</label>
             <select id="new-dest-who" class="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white">
-              <option value="both">❤️ Cả hai cùng đi</option>
-              <option value="husband">💙 Chồng đã đi</option>
-              <option value="wife">🌸 Vợ đã đi</option>
+              <option value="both">❤️ Đi cùng nhau</option>
+              <option value="husband">💙 Bạn trai đã đi</option>
+              <option value="wife">🌸 Bạn gái đã đi</option>
             </select>
           </div>
         </div>

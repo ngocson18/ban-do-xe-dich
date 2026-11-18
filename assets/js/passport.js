@@ -288,7 +288,7 @@ function drawBoardingPass(ctx, W, H, data) {
     { dot: '#FB923C', text: `Miền Trung: ${st.central} điểm` },
     { dot: '#FDBA74', text: `Miền Nam: ${st.south} điểm` }
   ] : (() => {
-    const L = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cả 2', husbandMap: 'Chồng', wifeMap: 'Vợ' };
+    const L = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cùng đi', husbandMap: 'Bạn trai', wifeMap: 'Bạn gái' };
     return [
       { dot: '#F43F5E', text: `${L.bothMap}: ${provCounts.both} tỉnh (${st.both} điểm)` },
       { dot: '#38BDF8', text: `${L.husbandMap}: ${provCounts.husband} tỉnh (${st.husband} điểm)` },
@@ -350,7 +350,7 @@ function drawBoardingPass(ctx, W, H, data) {
   ctx.fillStyle = '#78716C';
   ctx.font = '600 11px Inter, sans-serif';
   ctx.textAlign = 'center';
-  const L2 = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cả 2', husbandMap: 'Chồng', wifeMap: 'Vợ' };
+  const L2 = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cùng đi', husbandMap: 'Bạn trai', wifeMap: 'Bạn gái' };
   ctx.fillText(solo ? `📍 Đã đi ${st.provinces}/${totalProvs} tỉnh thành` : `❤️ ${L2.bothMap}   💙 ${L2.husbandMap}   🌸 ${L2.wifeMap}`, splitX + (tx + tw - splitX) / 2, ty + th - 22);
   ctx.textAlign = 'left';
 
@@ -426,7 +426,7 @@ function drawStoryPassport(ctx, W, H, data) {
   // Chú thích 3 màu dưới bản đồ
   ctx.fillStyle = '#E7E5E4';
   ctx.font = '600 24px Inter, sans-serif';
-  const L3 = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cả 2', husbandMap: 'Chồng', wifeMap: 'Vợ' };
+  const L3 = typeof getWhoLabels === 'function' ? getWhoLabels() : { bothMap: 'Cùng đi', husbandMap: 'Bạn trai', wifeMap: 'Bạn gái' };
   ctx.fillText(solo ? `🏔️ Bắc: ${st.north}    🏖️ Trung: ${st.central}    🌴 Nam: ${st.south}` : `❤️ ${L3.bothMap}: ${provCounts.both}    💙 ${L3.husbandMap}: ${provCounts.husband}    🌸 ${L3.wifeMap}: ${provCounts.wife}`, W / 2, 1135);
 
   // 4 thẻ thống kê 2x2
