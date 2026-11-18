@@ -173,6 +173,22 @@
       </div>
     </section>
 
+    <!-- Huy hiệu thành tích (gọn nhẹ) -->
+    <section class="bg-white rounded-2xl border border-stone-200/80 shadow-xs px-4 py-3">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+        <div class="flex items-center gap-2">
+          <h2 class="font-serif text-sm sm:text-base font-bold text-stone-900">🏅 Huy Hiệu Thành Tích</h2>
+          <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">Đã đạt <span id="badges-count">0/0</span></span>
+        </div>
+        <div class="flex items-center gap-1 text-[11px]">
+          <button onclick="setBadgeFilter('all')" data-bfilter="all" class="bfilter-btn px-2 py-0.5 rounded-lg font-semibold bg-stone-800 text-white transition">Tất cả (<span id="bcount-all">0</span>)</button>
+          <button onclick="setBadgeFilter('earned')" data-bfilter="earned" class="bfilter-btn px-2 py-0.5 rounded-lg font-medium bg-stone-100 text-stone-600 hover:bg-stone-200 transition">Đã đạt (<span id="bcount-earned">0</span>)</button>
+          <button onclick="setBadgeFilter('locked')" data-bfilter="locked" class="bfilter-btn px-2 py-0.5 rounded-lg font-medium bg-stone-100 text-stone-600 hover:bg-stone-200 transition">Chưa đạt (<span id="bcount-locked">0</span>)</button>
+        </div>
+      </div>
+      <div id="badges-grid" class="flex flex-wrap gap-1.5"></div>
+    </section>
+
     <!-- Phần 2: Bộ lọc & Tìm kiếm -->
     <section class="space-y-4">
       <div
@@ -214,6 +230,13 @@
       <div id="destinations-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
     </section>
   </main>
+
+  <!-- Floating Hover 2 Scenic Photos on Destination Name -->
+  <div id="hover-name-photos"
+    class="fixed pointer-events-none z-50 hidden bg-white/95 backdrop-blur-sm p-2 rounded-2xl shadow-2xl border border-stone-200 w-[340px] sm:w-[380px] transition-opacity duration-150">
+    <div id="hover-name-photos-grid" class="grid grid-cols-2 gap-1.5"></div>
+    <p id="hover-name-photos-caption" class="text-[11px] font-semibold text-stone-700 mt-1.5 px-1 flex items-center justify-between"></p>
+  </div>
 
   <!-- Floating Hover Image Preview -->
   <div id="hover-image-preview"
@@ -423,6 +446,8 @@
     <span id="toast-message">Đã lưu thành công!</span>
   </div>
 
+  <script src="data/vn-provinces.js"></script>
+  <script src="data/scenic-photos.js"></script>
   <script src="js/app.js"></script>
 </body>
 

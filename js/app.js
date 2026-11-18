@@ -1,7 +1,7 @@
 // ==========================================
 // 1. DỮ LIỆU GỐC & KẾT NỐI GOOGLE SHEETS BACKEND
 // ==========================================
-const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyRymBWCpKzntL8NlmxdMJDHNTlSexohJcozVMGycNpjHLZ-7Y-TyFph5B19834-aI/exec';
+const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxQ57X8gQq_6JYTppE_JEeB3qk7WzCdf0z66yFeJGcUEt5XGEEeGWzMYF6Z0mwmv6xl/exec';
 const OWNER_PIN = '182001';
 const STORAGE_KEY = 'couple_travel_journal_son_thuong_v1';
 
@@ -316,6 +316,11 @@ async function loadFromCloud() {
         const extra = local.comments.filter(c => !have.has(c.id) && c.pending && (Date.now() - new Date(c.time)) < 10 * 60 * 1000);
         if (extra.length) d.comments = (d.comments || []).concat(extra).sort((a, b) => new Date(a.time) - new Date(b.time));
       });
+      // Giữ lại reaction cục bộ nếu cloud chưa trả về trường reactions
+      data.forEach(d => {
+        const local = localById[d.id];
+        if (!d.reactions && local && local.reactions) d.reactions = local.reactions;
+      });
       destinations = data;
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations));
@@ -553,7 +558,7 @@ function renderCards() {
                         <div class="flex items-start justify-between gap-2">
                             <div>
                                 <span class="text-[11px] font-medium text-stone-400">${dest.region}</span>
-                                <h3 class="font-bold text-stone-900 text-base leading-snug cursor-pointer hover:text-terracotta-600 transition" onclick="focusOnMap(${dest.lat}, ${dest.lng}, '${dest.id}')">
+                                <h3 class="font-bold text-stone-900 text-base leading-snug cursor-pointer hover:text-terracotta-600 transition inline-flex items-center gap-1" onclick="focusOnMap(${dest.lat}, ${dest.lng}, '${dest.id}')" onmouseenter="showNamePhotoPreview(event, '${dest.id}')" onmouseleave="hideNamePhotoPreview()">
                                     ${dest.name}
                                 </h3>
                             </div>
@@ -619,6 +624,15 @@ ${isOwnerMode && photos.length > 0 ? `
                         </ul>
                     </div>
 
+                    <!-- Reaction của khách -->
+                    <div class="px-4 pb-3 pt-2 flex items-center gap-1.5 border-t border-stone-50">
+                        ${REACTIONS.map(em => {
+        const ids = (dest.reactions && dest.reactions[em]) || [];
+        const mine = ids.includes(getClientId());
+        return `<button onclick="toggleReaction('${dest.id}', '${em}')" class="reaction-btn ${mine ? 'reaction-on' : ''}"><span class="reaction-emoji">${em}</span><span class="reaction-count">${ids.length || ''}</span></button>`;
+      }).join('')}
+                    </div>
+
                     <!-- Ô thêm địa điểm con / món ăn (Chỉ hiện khi mở khóa Chủ nhân) -->
                     ${isOwnerMode ? `
                         <div class="px-4 py-3 bg-stone-50/90 border-t border-stone-100 flex items-center gap-1.5">
@@ -643,6 +657,7 @@ function updateAllUI() {
   updateStats();
   renderCards();
   renderMapMarkers();
+  renderBadges();
 }
 
 // ==========================================
@@ -663,6 +678,7 @@ function initMap() {
     maxZoom: 18
   }).addTo(map);
 
+  map.createPane('provincePane').style.zIndex = 350; // dưới marker, trên nền bản đồ
   markersLayer = L.layerGroup().addTo(map);
   renderMapMarkers();
 
@@ -675,9 +691,100 @@ function initMap() {
   });
 }
 
+// ==========================================
+// 5b. TÔ MÀU CÁC TỈNH ĐÃ ĐI
+// ==========================================
+let provinceLayer = null;
+let provinceLegend = null;
+const provinceCache = {}; // id địa điểm -> tên tỉnh
+
+function pointInRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function distToRing(x, y, ring) {
+  let best = Infinity;
+  for (let i = 0; i < ring.length - 1; i++) {
+    const [x1, y1] = ring[i], [x2, y2] = ring[i + 1];
+    const dx = x2 - x1, dy = y2 - y1;
+    const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / ((dx * dx + dy * dy) || 1e-12)));
+    best = Math.min(best, Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)));
+  }
+  return best;
+}
+
+// Tìm tỉnh chứa toạ độ; nếu rơi ngoài (đảo, ven biển) thì lấy tỉnh gần nhất trong ~0.2°
+function findProvince(lat, lng) {
+  if (typeof VN_PROVINCES_GEOJSON === 'undefined') return null;
+  let nearest = null, nearestD = 0.2;
+  for (const f of VN_PROVINCES_GEOJSON.features) {
+    for (const poly of f.geometry.coordinates) {
+      const ring = poly[0];
+      if (pointInRing(lng, lat, ring)) return f.properties.name;
+      const d = distToRing(lng, lat, ring);
+      if (d < nearestD) { nearestD = d; nearest = f.properties.name; }
+    }
+  }
+  return nearest;
+}
+
+function getVisitedProvincesMap() {
+  const visited = {};
+  if (typeof VN_PROVINCES_GEOJSON === 'undefined') return visited;
+  destinations.forEach(d => {
+    const lat = Number(d.lat), lng = Number(d.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const key = d.id + '|' + lat + '|' + lng;
+    if (!(key in provinceCache)) provinceCache[key] = findProvince(lat, lng);
+    const prov = provinceCache[key];
+    if (prov) (visited[prov] = visited[prov] || []).push(d.name);
+  });
+  return visited;
+}
+
+function updateProvinceLayer() {
+  if (!map || typeof VN_PROVINCES_GEOJSON === 'undefined') return;
+  const visited = getVisitedProvincesMap();
+
+  if (provinceLayer) map.removeLayer(provinceLayer);
+  provinceLayer = L.geoJSON(VN_PROVINCES_GEOJSON, {
+    pane: 'provincePane',
+    style: f => visited[f.properties.name]
+      ? { color: '#C2410C', weight: 1.2, fillColor: '#F97316', fillOpacity: 0.45 }
+      : { color: '#A8A29E', weight: 0.6, fillColor: '#ffffff', fillOpacity: 0.05 },
+    onEachFeature: (f, layer) => {
+      const places = visited[f.properties.name];
+      layer.bindTooltip(
+        places ? `<b>${escapeHtml(f.properties.name)}</b><br>✅ ${places.map(escapeHtml).join('<br>✅ ')}` : escapeHtml(f.properties.name),
+        { sticky: true }
+      );
+    }
+  }).addTo(map);
+
+  const total = VN_PROVINCES_GEOJSON.features.length;
+  const count = Object.keys(visited).length;
+  if (!provinceLegend) {
+    provinceLegend = L.control({ position: 'bottomleft' });
+    provinceLegend.onAdd = () => {
+      const div = L.DomUtil.create('div', 'province-legend');
+      return div;
+    };
+    provinceLegend.addTo(map);
+  }
+  provinceLegend.getContainer().innerHTML =
+    `<div class="province-legend-title">🗺️ Đã đi <b>${count}/${total}</b> tỉnh thành</div>` +
+    `<div class="province-legend-bar"><div style="width:${(count / total * 100).toFixed(1)}%"></div></div>`;
+}
+
 function renderMapMarkers() {
   if (!map || !markersLayer) return;
   markersLayer.clearLayers();
+  updateProvinceLayer();
 
   destinations.forEach(dest => {
     const items = dest.items || [];
@@ -953,6 +1060,112 @@ function showHoverPhoto(event, destId) {
 function hideHoverPhoto() {
   document.getElementById('hover-image-preview').classList.add('hidden');
 }
+
+// ---- Hover tên địa danh: hiện 2 ảnh thắng cảnh ----
+const scenicDynamicCache = {};
+let namePhotoHoverToken = 0;
+
+function lookupCuratedScenic(dest) {
+  if (typeof SCENIC_PHOTOS === 'undefined' || !dest) return null;
+  if (SCENIC_PHOTOS[dest.id]) return SCENIC_PHOTOS[dest.id];
+  const norm = removeAccents(dest.name || '').replace(/[^a-z0-9]+/g, ' ').trim();
+  for (const [key, urls] of Object.entries(SCENIC_PHOTOS)) {
+    const kw = key.replace(/-/g, ' ');
+    if (norm.includes(kw)) return urls;
+  }
+  return null;
+}
+
+async function fetchScenicPhotos(dest) {
+  const cacheKey = dest.id;
+  if (scenicDynamicCache[cacheKey]) return scenicDynamicCache[cacheKey];
+  const baseName = (dest.name || '').split(/[-–(]/)[0].trim();
+  const q = `${baseName} Vietnam filetype:bitmap`;
+  const url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=480&format=json&origin=*&gsrsearch=' + encodeURIComponent(q);
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const pages = Object.values((data.query && data.query.pages) || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+    const bad = /map|flag|logo|seal|coat|icon|bản đồ|chart|diagram|portrait|document|insect|specimen|192\d|193\d/i;
+    const urls = [];
+    for (const p of pages) {
+      if (bad.test(p.title || '')) continue;
+      const ii = (p.imageinfo && p.imageinfo[0]) || {};
+      if (ii.mime === 'image/jpeg' && ii.width >= 800 && ii.height > 0 && ii.width / ii.height >= 1.15 && ii.width / ii.height <= 2.2) {
+        urls.push((ii.thumburl || ii.url).split('?')[0]);
+        if (urls.length >= 2) break;
+      }
+    }
+    scenicDynamicCache[cacheKey] = urls;
+    return urls;
+  } catch (e) {
+    return [];
+  }
+}
+
+function positionNamePhotoBox(box, targetEl) {
+  const r = targetEl.getBoundingClientRect();
+  const w = box.offsetWidth || 360;
+  const h = box.offsetHeight || 160;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = Math.max(8, Math.min(r.left, vw - w - 8));
+  let top = r.top - h - 10;
+  if (top < 8) top = Math.min(r.bottom + 10, vh - h - 8);
+  box.style.left = `${left}px`;
+  box.style.top = `${top}px`;
+}
+
+function renderNamePhotoBox(box, dest, urls, loading) {
+  const grid = document.getElementById('hover-name-photos-grid');
+  const cap = document.getElementById('hover-name-photos-caption');
+  if (loading) {
+    grid.innerHTML = '<div class="scenic-thumb animate-pulse"></div><div class="scenic-thumb animate-pulse"></div>';
+    cap.innerHTML = `<span>✨ ${escapeHtml(dest.name)}</span><span class="text-[10px] text-stone-400 font-normal">Đang tải ảnh...</span>`;
+    return;
+  }
+  if (!urls || !urls.length) {
+    box.classList.add('hidden');
+    return;
+  }
+  grid.innerHTML = urls.slice(0, 2).map(u =>
+    `<img src="${u}" referrerpolicy="no-referrer" alt="${escapeHtml(dest.name)}" class="scenic-thumb" onerror="this.style.display='none'">`
+  ).join('');
+  cap.innerHTML = `<span class="truncate">✨ ${escapeHtml(dest.name)}</span><span class="text-[10px] text-stone-400 font-normal shrink-0 ml-2">Bấm để xem trên bản đồ</span>`;
+}
+
+async function showNamePhotoPreview(event, destId) {
+  const dest = destinations.find(d => d.id === destId);
+  if (!dest) return;
+  const box = document.getElementById('hover-name-photos');
+  if (!box) return;
+  const target = event.currentTarget;
+  const token = ++namePhotoHoverToken;
+
+  const curated = lookupCuratedScenic(dest) || scenicDynamicCache[dest.id];
+  box.classList.remove('hidden', 'scenic-card-show');
+  void box.offsetWidth;
+  box.classList.add('scenic-card-show');
+
+  if (curated) {
+    renderNamePhotoBox(box, dest, curated, false);
+    positionNamePhotoBox(box, target);
+    return;
+  }
+
+  renderNamePhotoBox(box, dest, null, true);
+  positionNamePhotoBox(box, target);
+  const fetched = await fetchScenicPhotos(dest);
+  if (token !== namePhotoHoverToken || box.classList.contains('hidden')) return;
+  renderNamePhotoBox(box, dest, fetched, false);
+  positionNamePhotoBox(box, target);
+}
+
+function hideNamePhotoPreview() {
+  namePhotoHoverToken++;
+  const box = document.getElementById('hover-name-photos');
+  if (box) box.classList.add('hidden');
+}
+
 
 function openPhotoModal(destId) {
   currentPhotoDestId = destId;
@@ -1234,6 +1447,189 @@ function deleteComment(idx) {
 }
 
 // ==========================================
+// 7c. REACTION (❤️ 😂 😮) TRÊN THẺ ĐỊA ĐIỂM
+// ==========================================
+const REACTIONS = ['❤️', '😂', '😮'];
+
+function getClientId() {
+  let id = null;
+  try { id = localStorage.getItem('nhat-ky-client-id'); } catch (e) { }
+  if (!id) {
+    id = 'u-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try { localStorage.setItem('nhat-ky-client-id', id); } catch (e) { }
+  }
+  return id;
+}
+
+function toggleReaction(destId, emoji) {
+  const dest = destinations.find(d => d.id === destId);
+  if (!dest || !REACTIONS.includes(emoji)) return;
+  const me = getClientId();
+  if (!dest.reactions) dest.reactions = {};
+  const arr = dest.reactions[emoji] || (dest.reactions[emoji] = []);
+  const i = arr.indexOf(me);
+  if (i >= 0) arr.splice(i, 1); else arr.push(me);
+
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations)); } catch (e) { }
+  renderCards();
+  renderBadges();
+  postReactionToCloud(destId, emoji, me);
+}
+
+async function postReactionToCloud(destId, emoji, clientId) {
+  if (!GOOGLE_SHEET_API_URL) return;
+  try {
+    const body = new URLSearchParams();
+    body.append('action', 'react');
+    body.append('destId', destId);
+    body.append('emoji', emoji);
+    body.append('clientId', clientId);
+    await fetch(GOOGLE_SHEET_API_URL, { method: 'POST', mode: 'no-cors', body });
+  } catch (e) { console.warn('Không gửi được reaction:', e.message); }
+}
+
+// ==========================================
+// 7d. HUY HIỆU THÀNH TÍCH (32 huy hiệu gọn nhẹ)
+// ==========================================
+const BADGE_SEEN_KEY = 'nhat-ky-badges-earned';
+let currentBadgeFilter = 'all';
+
+function setBadgeFilter(f) {
+  currentBadgeFilter = f;
+  document.querySelectorAll('.bfilter-btn').forEach(btn => {
+    const active = btn.dataset.bfilter === f;
+    btn.className = active
+      ? 'bfilter-btn px-2 py-0.5 rounded-lg font-semibold bg-stone-800 text-white transition'
+      : 'bfilter-btn px-2 py-0.5 rounded-lg font-medium bg-stone-100 text-stone-600 hover:bg-stone-200 transition';
+  });
+  renderBadges();
+}
+
+function getBadgeStats() {
+  const st = {
+    places: destinations.length, provinces: 0, north: 0, central: 0, south: 0,
+    both: 0, husband: 0, wife: 0, food: 0, exp: 0, sight: 0, checked: 0,
+    photos: 0, comments: 0, reactions: 0, perfect: 0
+  };
+  destinations.forEach(d => {
+    if (d.region === 'Miền Bắc') st.north++;
+    else if (d.region === 'Miền Trung') st.central++;
+    else if (d.region === 'Miền Nam') st.south++;
+    if (d.who === 'both') st.both++;
+    else if (d.who === 'husband') st.husband++;
+    else if (d.who === 'wife') st.wife++;
+    const items = d.items || [];
+    items.forEach(i => {
+      if (!i.checked) return;
+      st.checked++;
+      if (i.type === 'food') st.food++;
+      else if (i.type === 'exp') st.exp++;
+      else st.sight++;
+    });
+    if (items.length >= 1 && items.every(i => i.checked)) st.perfect++;
+    st.photos += (d.photos || []).length;
+    st.comments += (d.comments || []).length;
+    Object.values(d.reactions || {}).forEach(a => { if (Array.isArray(a)) st.reactions += a.length; });
+  });
+  st.provinces = Object.keys(getVisitedProvincesMap()).length;
+  st.regions = (st.north > 0) + (st.central > 0) + (st.south > 0);
+  st.allWho = (st.both > 0) + (st.husband > 0) + (st.wife > 0);
+  return st;
+}
+
+const BADGES = [
+  // Số địa điểm
+  { id: 'first', icon: '🌱', title: 'Khởi hành', desc: 'Có địa điểm đầu tiên', stat: 'places', target: 1 },
+  { id: 'p5', icon: '🎒', title: 'Lữ hành', desc: 'Đi 5 địa điểm', stat: 'places', target: 5 },
+  { id: 'p10', icon: '🧭', title: 'Thám hiểm', desc: 'Đi 10 địa điểm', stat: 'places', target: 10 },
+  { id: 'p15', icon: '✈️', title: 'Mê xê dịch', desc: 'Đi 15 địa điểm', stat: 'places', target: 15 },
+  { id: 'p20', icon: '🏆', title: 'Du ký gia', desc: 'Đi 20 địa điểm', stat: 'places', target: 20 },
+  { id: 'p30', icon: '👑', title: 'Huyền thoại', desc: 'Đi 30 địa điểm', stat: 'places', target: 30 },
+  // Tỉnh thành
+  { id: 'prov5', icon: '🗺️', title: '5 tỉnh thành', desc: 'Chạm 5 tỉnh thành Việt Nam', stat: 'provinces', target: 5 },
+  { id: 'prov10', icon: '📍', title: '10 tỉnh thành', desc: 'Chạm 10 tỉnh thành Việt Nam', stat: 'provinces', target: 10 },
+  { id: 'prov15', icon: '🚗', title: '15 tỉnh thành', desc: 'Chạm 15 tỉnh thành Việt Nam', stat: 'provinces', target: 15 },
+  { id: 'prov20', icon: '🚀', title: '20 tỉnh thành', desc: 'Chạm 20 tỉnh thành Việt Nam', stat: 'provinces', target: 20 },
+  { id: 'prov32', icon: '🌏', title: 'Nửa Việt Nam', desc: 'Chạm 32/63 tỉnh thành', stat: 'provinces', target: 32 },
+  // Miền
+  { id: 'north5', icon: '🏔️', title: 'Mê miền Bắc', desc: '5 địa điểm miền Bắc', stat: 'north', target: 5 },
+  { id: 'north10', icon: '❄️', title: 'Thổ địa Bắc', desc: '10 địa điểm miền Bắc', stat: 'north', target: 10 },
+  { id: 'central5', icon: '🏖️', title: 'Nắng miền Trung', desc: '5 địa điểm miền Trung', stat: 'central', target: 5 },
+  { id: 'central10', icon: '🌊', title: 'Duyên hải Trung', desc: '10 địa điểm miền Trung', stat: 'central', target: 10 },
+  { id: 'south3', icon: '🌴', title: 'Phương Nam', desc: '3 địa điểm miền Nam', stat: 'south', target: 3 },
+  { id: 'regions', icon: '🇻🇳', title: 'Xuyên Việt', desc: 'Đi đủ cả 3 miền Bắc - Trung - Nam', stat: 'regions', target: 3 },
+  // Cặp đôi
+  { id: 'both1', icon: '💕', title: 'Chuyến đi đôi', desc: '1 chuyến đi cùng nhau', stat: 'both', target: 1 },
+  { id: 'both5', icon: '💑', title: 'Đôi uyên ương', desc: '5 chuyến đi cùng nhau', stat: 'both', target: 5 },
+  { id: 'both10', icon: '💍', title: 'Bạn đồng hành', desc: '10 chuyến đi cùng nhau', stat: 'both', target: 10 },
+  { id: 'allwho', icon: '🤝', title: 'Đủ mọi mảnh ghép', desc: 'Có điểm của chồng, vợ & cả hai', stat: 'allWho', target: 3 },
+  // Trải nghiệm & Ẩm thực
+  { id: 'food5', icon: '🍜', title: 'Sành ăn', desc: 'Thử 5 món đặc sản', stat: 'food', target: 5 },
+  { id: 'food10', icon: '🍲', title: 'Tín đồ ẩm thực', desc: 'Thử 10 món đặc sản', stat: 'food', target: 10 },
+  { id: 'food20', icon: '🍽️', title: 'Vua ẩm thực', desc: 'Thử 20 món đặc sản', stat: 'food', target: 20 },
+  { id: 'exp10', icon: '✨', title: 'Mê trải nghiệm', desc: 'Hoàn thành 10 trải nghiệm', stat: 'exp', target: 10 },
+  { id: 'sight25', icon: '🔭', title: 'Yêu danh thắng', desc: 'Check-in 25 danh thắng', stat: 'sight', target: 25 },
+  { id: 'chk50', icon: '🔥', title: '50 dấu mốc', desc: 'Hoàn thành 50 mục trải nghiệm', stat: 'checked', target: 50 },
+  { id: 'chk100', icon: '⚡', title: '100 dấu mốc', desc: 'Hoàn thành 100 mục trải nghiệm', stat: 'checked', target: 100 },
+  // Hoàn hảo & Tương tác
+  { id: 'perf1', icon: '✅', title: 'Trọn vẹn', desc: 'Hoàn thành 100% trải nghiệm ở 1 nơi', stat: 'perfect', target: 1 },
+  { id: 'perf5', icon: '🌟', title: 'Cầu toàn', desc: 'Hoàn thành 100% ở 5 địa điểm', stat: 'perfect', target: 5 },
+  { id: 'perf10', icon: '💎', title: 'Hoàn mỹ', desc: 'Hoàn thành 100% ở 10 địa điểm', stat: 'perfect', target: 10 },
+  { id: 'photo5', icon: '📸', title: 'Nhiếp ảnh gia', desc: 'Lưu 5 ảnh kỷ niệm', stat: 'photos', target: 5 },
+  { id: 'cmt5', icon: '💬', title: 'Được yêu mến', desc: 'Nhận 5 bình luận từ bạn bè', stat: 'comments', target: 5 },
+  { id: 'react10', icon: '❤️', title: 'Nhiều tim', desc: 'Nhận 10 reaction trên các thẻ', stat: 'reactions', target: 10 }
+];
+
+function renderBadges() {
+  const box = document.getElementById('badges-grid');
+  if (!box) return;
+  const st = getBadgeStats();
+  const earnedNow = [];
+  const rows = BADGES.map(b => {
+    const cur = st[b.stat] || 0;
+    const done = cur >= b.target;
+    if (done) earnedNow.push(b.id);
+    return { b, cur, done };
+  });
+
+  const visible = rows.filter(r =>
+    currentBadgeFilter === 'all' ? true : currentBadgeFilter === 'earned' ? r.done : !r.done
+  );
+  // Xếp huy hiệu đã đạt lên trước cho gọn mắt
+  visible.sort((a, b) => Number(b.done) - Number(a.done));
+
+  box.innerHTML = visible.length ? visible.map(({ b, cur, done }) => `
+    <div class="badge-chip ${done ? 'badge-on' : 'badge-off'}" title="${escapeHtml(b.desc)} (${cur}/${b.target})">
+      <span class="badge-icon">${b.icon}</span>
+      <span class="badge-title">${escapeHtml(b.title)}</span>
+      ${done ? '<span class="badge-check">✓</span>' : `<span class="badge-prog">${cur}/${b.target}</span>`}
+    </div>`).join('')
+    : '<span class="text-xs text-stone-400 py-1">Chưa có huy hiệu nào trong mục này.</span>';
+
+  const totalBadges = BADGES.length;
+  const earnedCount = earnedNow.length;
+  const lockedCount = totalBadges - earnedCount;
+  const countEl = document.getElementById('badges-count');
+  if (countEl) countEl.textContent = `${earnedCount}/${totalBadges}`;
+  const ca = document.getElementById('bcount-all');
+  const ce = document.getElementById('bcount-earned');
+  const cl = document.getElementById('bcount-locked');
+  if (ca) ca.textContent = totalBadges;
+  if (ce) ce.textContent = earnedCount;
+  if (cl) cl.textContent = lockedCount;
+
+  try {
+    const raw = localStorage.getItem(BADGE_SEEN_KEY);
+    if (raw) {
+      const seen = JSON.parse(raw);
+      const fresh = BADGES.filter(b => earnedNow.includes(b.id) && !seen.includes(b.id));
+      if (fresh.length) showToast(`🎉 Huy hiệu mới: ${fresh.map(b => b.icon + ' ' + b.title).join(', ')}`);
+    }
+    localStorage.setItem(BADGE_SEEN_KEY, JSON.stringify(earnedNow));
+  } catch (e) { }
+}
+
+// ==========================================
 // 8. XUẤT CODE DỰ PHÒNG & KHÔI PHỤC GỐC
 // ==========================================
 function openExportModal() {
@@ -1305,5 +1701,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateAllUI();
   } else if (cloudStatus === 'empty') {
     await syncToCloud(false);
+  }
+});
+
+// Đóng tất cả modal khi bấm ra vùng nền tối bên ngoài hoặc nhấn Esc
+const ALL_MODALS = [
+  ['comment-modal', closeCommentModal],
+  ['photo-modal', closePhotoModal],
+  ['add-dest-modal', closeAddDestinationModal],
+  ['pin-modal', closePinModal],
+  ['export-modal', closeExportModal],
+  ['reset-modal', closeResetModal]
+];
+
+document.addEventListener('mousedown', e => {
+  for (const [id, closeFn] of ALL_MODALS) {
+    const modal = document.getElementById(id);
+    if (modal && e.target === modal) {
+      closeFn();
+      break;
+    }
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  for (const [id, closeFn] of ALL_MODALS) {
+    const modal = document.getElementById(id);
+    if (modal && !modal.classList.contains('hidden')) {
+      closeFn();
+      break;
+    }
   }
 });
