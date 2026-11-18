@@ -1,7 +1,7 @@
 // ==========================================
 // 1. DỮ LIỆU GỐC & KẾT NỐI GOOGLE SHEETS BACKEND
 // ==========================================
-const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbwBLoeRdbYAldakNXbMkuBLySKtE5jB_SQe2fQ2vot_hW33P3G0xf4qT-6aFm1oWARu/exec';
+const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyRymBWCpKzntL8NlmxdMJDHNTlSexohJcozVMGycNpjHLZ-7Y-TyFph5B19834-aI/exec';
 const OWNER_PIN = '182001';
 const STORAGE_KEY = 'couple_travel_journal_son_thuong_v1';
 
