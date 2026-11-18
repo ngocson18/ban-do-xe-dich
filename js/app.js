@@ -313,7 +313,7 @@ async function loadFromCloud() {
         const local = localById[d.id];
         if (!local || !Array.isArray(local.comments) || !local.comments.length) return;
         const have = new Set((d.comments || []).map(c => c.id));
-        const extra = local.comments.filter(c => !have.has(c.id));
+        const extra = local.comments.filter(c => !have.has(c.id) && c.pending && (Date.now() - new Date(c.time)) < 10 * 60 * 1000);
         if (extra.length) d.comments = (d.comments || []).concat(extra).sort((a, b) => new Date(a.time) - new Date(b.time));
       });
       destinations = data;
@@ -1181,12 +1181,24 @@ async function postCommentToCloud(destId, comment) {
   try {
     const body = new URLSearchParams();
     body.append('action', 'comment');
+    body.append('id', comment.id);
     body.append('destId', destId);
     body.append('name', comment.name);
     body.append('text', comment.text);
     body.append('time', comment.time);
     await fetch(GOOGLE_SHEET_API_URL, { method: 'POST', mode: 'no-cors', body });
   } catch (e) { console.warn('Không gửi được bình luận lên cloud:', e.message); }
+}
+
+async function deleteCommentOnCloud(id) {
+  if (!GOOGLE_SHEET_API_URL) return;
+  try {
+    const body = new URLSearchParams();
+    body.append('action', 'deleteComment');
+    body.append('pin', OWNER_PIN);
+    body.append('id', id);
+    await fetch(GOOGLE_SHEET_API_URL, { method: 'POST', mode: 'no-cors', body });
+  } catch (e) { console.warn('Không xóa được bình luận trên cloud:', e.message); }
 }
 
 function addComment() {
@@ -1198,18 +1210,15 @@ function addComment() {
   if (!name) { showToast('Vui lòng nhập tên của bạn!'); document.getElementById('comment-name').focus(); return; }
   if (!text) { showToast('Vui lòng nhập nội dung bình luận!'); return; }
 
-  const comment = { id: 'c-' + Date.now(), name, text, time: new Date().toISOString() };
+  const comment = { id: 'c-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name, text, time: new Date().toISOString(), pending: true };
   if (!dest.comments) dest.comments = [];
   dest.comments.push(comment);
   try { localStorage.setItem(COMMENT_NAME_KEY, name); } catch (e) { }
   document.getElementById('comment-text').value = '';
   renderCommentList(dest);
-  if (isOwnerMode) saveData(true);
-  else {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations)); } catch (e) { }
-    updateAllUI();
-    postCommentToCloud(dest.id, comment);
-  }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(destinations)); } catch (e) { }
+  updateAllUI();
+  postCommentToCloud(dest.id, comment);
   showToast('Đã gửi bình luận!');
 }
 
@@ -1218,9 +1227,10 @@ function deleteComment(idx) {
   const dest = destinations.find(d => d.id === currentCommentDestId);
   if (!dest || !dest.comments) return;
   if (!confirm(`Xóa bình luận của "${dest.comments[idx].name}"?`)) return;
-  dest.comments.splice(idx, 1);
+  const removed = dest.comments.splice(idx, 1)[0];
   renderCommentList(dest);
   saveData(true);
+  deleteCommentOnCloud(removed.id);
 }
 
 // ==========================================
